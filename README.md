@@ -10,4 +10,5 @@ App web (PWA) para que las tiendas hagan pedidos de bebidas, chateen con su vend
 - Estados: Recibido → Confirmado → Alistando → En ruta → Entregado (o Cancelado), con historial.
 - Chat en tiempo real por pedido y general; llamadas y videollamadas con Jitsi Meet; WhatsApp de respaldo.
 - Excel (.xlsx): importar/exportar productos, exportar pedidos y tiendas.
-- `supabase/esquema.sql`: tablas, funciones y reglas de seguridad. `supabase/ejemplos.sql`: productos de EJEMPLO (precios no reales).
+- v3: promociones y combos, banners, favoritos, "Pide de nuevo", fecha y franja de entrega, asignación de vendedor y ruta, cancelación por la tienda mientras está Recibido, prueba de entrega con foto o firma, calificaciones, tablero de ventas con gráficas, alertas de stock bajo, modo oscuro, catálogo sin conexión, comprobante imprimible/PDF y contador de mensajes sin leer.
+- `supabase/esquema.sql` y `supabase/v3.sql`: tablas, funciones y reglas de seguridad. `supabase/ejemplos.sql`: productos de EJEMPLO (precios no reales).
