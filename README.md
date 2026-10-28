@@ -1,9 +1,13 @@
 # DistriPostobon
-Web app de pedidos para tiendas: catálogo, carrito, pedido con código de seguimiento (DP-XXXXX), aviso al vendedor (WhatsApp + tiempo real) y panel del vendedor con estados Recibido → Confirmado → Alistando → En ruta → Entregado.
 
-Proyecto personal e independiente de demostración. No es una app oficial ni está afiliada a Postobón S.A. Precios de ejemplo.
+App web (PWA) para que las tiendas hagan pedidos de bebidas, chateen con su vendedor y sigan cada entrega con un código `DP-XXXXX`.
 
-- Configuración: `config.js` (WhatsApp del vendedor, PIN, canal en tiempo real).
-- Productos y precios: `productos.js`.
-- Tiempo real: ntfy.sh (gratis, sin cuenta). El vendedor puede instalar la app "ntfy" y suscribirse al canal para recibir push de cada pedido nuevo.
-- Sin frameworks, sin build: HTML + CSS + JS (~25 KB). PWA instalable.
+**Proyecto independiente. No es una app oficial ni está afiliada a Postobón S.A.**
+
+- En línea: https://andresrivera9426-sketch.github.io/distripostobon/
+- Backend: Supabase (autenticación, base de datos Postgres con RLS, Realtime y Storage).
+- Roles: 1 administrador, hasta 4 vendedores, hasta 2 de bodega y tiendas ilimitadas (los límites se aplican en la base de datos).
+- Estados: Recibido → Confirmado → Alistando → En ruta → Entregado (o Cancelado), con historial.
+- Chat en tiempo real por pedido y general; llamadas y videollamadas con Jitsi Meet; WhatsApp de respaldo.
+- Excel (.xlsx): importar/exportar productos, exportar pedidos y tiendas.
+- `supabase/esquema.sql`: tablas, funciones y reglas de seguridad. `supabase/ejemplos.sql`: productos de EJEMPLO (precios no reales).
