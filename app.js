@@ -494,7 +494,7 @@ async function aProductos(el) {
   await cargarCatalogo();
   if (!el.isConnected) return;
   el.innerHTML = `<div class="btns"><button id="nuevo" class="btn y">➕ Nuevo producto</button><label class="btn ghost">📥 Importar Excel<input id="imp" type="file" accept=".xlsx,.xls,.csv" hidden></label><button id="exp" class="btn ghost">⬇️ Exportar Excel</button><button id="pla" class="btn ghost">📄 Plantilla</button></div>
-  <p class="muted small">Columnas del Excel: Nombre, Categoría, Presentación, Precio, Precio promo (opcional), Stock, Activo (SI/NO), Destacado (SI/NO), Descripción, Foto (enlace opcional). Si el nombre y la presentación ya existen, se actualiza. Para un combo, crea un producto con categoría "Combos".</p>
+  <p class="muted small">Plantilla: Producto, Cantidad disponible, Precio COP, Imagen URL (https). También acepta las columnas anteriores (Nombre, Stock, Foto…). Vista previa antes de guardar: si hay errores en alguna fila, se bloquea todo el lote. Drive e IA quedan para una fase 2 (sin botones simulados).</p>
   <input id="bq" type="search" placeholder="🔎 Buscar producto…" aria-label="Buscar producto"><div class="card list" id="lp"></div>`;
   const al = S.config.stock_alerta ?? 10;
   const pintar = t => { t = (t || "").toLowerCase(); const l = S.productos.filter(p => !t || (p.nombre + p.categoria).toLowerCase().includes(t));
@@ -502,26 +502,46 @@ async function aProductos(el) {
   pintar(); $("#bq").oninput = debounce(e => pintar(e.target.value));
   $("#lp").onclick = e => { const b = e.target.closest("[data-ed]"); if (b) formProducto(S.productos.find(p => p.id === b.dataset.ed)); };
   $("#nuevo").onclick = () => formProducto({ nombre: "", categoria: "", presentacion: "", precio: "", precio_promo: null, stock: 0, activo: true, destacado: false, descripcion: "" });
-  $("#exp").onclick = () => libro({ Productos: S.productos.map(p => ({ Nombre: p.nombre, Categoría: p.categoria, Presentación: p.presentacion, Precio: Number(p.precio), "Precio promo": p.precio_promo ?? "", Stock: p.stock, Activo: p.activo ? "SI" : "NO", Destacado: p.destacado ? "SI" : "NO", Descripción: p.descripcion || "", Foto: p.foto_url || "" })) }, "productos");
-  $("#pla").onclick = () => libro({ Productos: [{ Nombre: "EJEMPLO · Producto", Categoría: "Gaseosas", Presentación: "Paca x12", Precio: 20000, "Precio promo": "", Stock: 50, Activo: "SI", Destacado: "NO", Descripción: "", Foto: "" }] }, "plantilla-productos");
+  $("#exp").onclick = () => libro({ Productos: S.productos.map(p => DPImport.exportCols(p)) }, "productos");
+  $("#pla").onclick = () => libro({ Productos: DPImport.plantillaEjemplo() }, "plantilla-productos");
   $("#imp").onchange = async e => {
     const f = e.target.files[0]; e.target.value = ""; if (!f || !await cargarXLSX()) return;
     try {
       const wb = XLSX.read(await f.arrayBuffer()), rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
-      const norm = o => { const m = {}; for (const k in o) m[sinTilde(k).trim()] = o[k]; return m; };
-      const num = v => Number(String(v).replace(/[^\d.]/g, "")), si = v => /^(si|s|1|true|x)$/i.test(sinTilde(String(v)).trim());
-      const ok = [], malas = [];
-      rows.map(norm).forEach((r, i) => { const precio = num(r.precio); if (!String(r.nombre).trim() || r.precio === "" || !(precio >= 0)) { malas.push(i + 2); return; }
-        const pp = r["precio promo"] === "" || r["precio promo"] === undefined ? null : num(r["precio promo"]);
-        ok.push({ nombre: String(r.nombre).trim().slice(0, 120), categoria: String(r.categoria || "General").trim().slice(0, 40), presentacion: String(r.presentacion || "").trim().slice(0, 60), precio, precio_promo: pp != null && pp < precio ? pp : null, stock: Math.max(0, parseInt(r.stock) || 0), activo: !/^(no|n|0|false)$/i.test(String(r.activo).trim()), destacado: si(r.destacado), descripcion: String(r.descripcion || "").trim().slice(0, 140), foto_url: /^https:\/\//.test(String(r.foto || "").trim()) ? String(r.foto).trim() : null }); });
-      if (!ok.length) return toast("No encontré filas válidas. Usa la plantilla.", 1);
-      if (!confirm(`¿Importar ${ok.length} producto(s)?${malas.length ? `\nSe omiten filas con error: ${malas.slice(0, 15).join(", ")}` : ""}`)) return;
-      let n = 0;
-      for (const p of ok) { const ex = S.productos.find(x => x.nombre.toLowerCase() === p.nombre.toLowerCase() && (x.presentacion || "").toLowerCase() === p.presentacion.toLowerCase());
-        if (!p.foto_url && ex) delete p.foto_url;
-        const { error } = ex ? await sb.from("productos").update(p).eq("id", ex.id) : await sb.from("productos").insert(p); if (!error) n++; }
-      toast(`Importados ${n} de ${ok.length} productos`); aProductos(el);
+      const parsed = DPImport.parseFilas(rows, S.productos);
+      if (!parsed.items.length) return toast("No encontré filas. Usa la plantilla.", 1);
+      mostrarVistaPreviaImport(el, parsed);
     } catch (er) { toast("No pude leer el archivo: " + er.message, 1); }
+  };
+}
+async function mostrarVistaPreviaImport(el, parsed) {
+  const filas = parsed.items.map(it => {
+    const err = it.errores.length ? `<span class="tag red">Error</span> ${esc(it.errores.join("; "))}` : `<span class="tag">${it.accion === "actualizar" ? "Actualizar" : "Crear"}</span>`;
+    const stock = it.accion === "actualizar" ? `${it.stockAnterior} → ${it.producto.stock}` : String(it.producto.stock);
+    const thumb = it.producto.foto_url ? `<img class="mini" src="${esc(it.producto.foto_url)}" alt="" loading="lazy">` : `<div class="mini nof" aria-hidden="true">·</div>`;
+    return `<div class="row">${thumb}<div class="grow"><b>${esc(it.producto.nombre)}</b><small>Fila ${it.fila} · ${esc(it.producto.presentacion || "sin presentación")} · ${esc(it.producto.categoria)} · Stock ${esc(stock)} · ${cop(it.producto.precio)}</small><small>${err}</small></div></div>`;
+  }).join("");
+  const aviso = parsed.bloqueado
+    ? `<p class="note warn">Hay errores en ${parsed.malas.length} fila(s). Corrige el Excel y vuelve a importar; no se guardará nada hasta que el lote esté limpio.</p>`
+    : `<p class="muted small">${parsed.ok.filter(x => x.accion === "crear").length} por crear · ${parsed.ok.filter(x => x.accion === "actualizar").length} por actualizar. El stock de las filas a actualizar se reemplaza (no se suma).</p>`;
+  modal(`<div id="prevImp"><h3>Vista previa de importación</h3>${aviso}<div class="list" style="max-height:50vh;overflow:auto">${filas}</div>
+    <div class="btns"><button type="button" class="btn y" id="okImp" ${parsed.bloqueado ? "disabled" : ""}>Confirmar e importar</button><button type="button" class="btn ghost" id="cxImp">Cancelar</button></div></div>`);
+  $("#cxImp").onclick = () => cerrarModal();
+  $("#okImp").onclick = async () => {
+    if (parsed.bloqueado) return;
+    const reemplazos = parsed.ok.filter(x => x.accion === "actualizar");
+    if (reemplazos.length && !confirm(`Se reemplazará el stock de ${reemplazos.length} producto(s) existentes. ¿Continuar?`)) return;
+    $("#okImp").disabled = true;
+    let n = 0;
+    for (const it of parsed.ok) {
+      const p = { ...it.producto };
+      if (!p.foto_url && it.existente) delete p.foto_url;
+      const { error } = it.existente ? await sb.from("productos").update(p).eq("id", it.existente.id) : await sb.from("productos").insert(p);
+      if (!error) n++;
+    }
+    cerrarModal();
+    toast(`Importados ${n} de ${parsed.ok.length} productos`);
+    aProductos(el);
   };
 }
 function formProducto(p) {
