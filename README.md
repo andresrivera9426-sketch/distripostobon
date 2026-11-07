@@ -12,3 +12,12 @@ App web (PWA) para que las tiendas hagan pedidos de bebidas, chateen con su vend
 - Excel (.xlsx): importar/exportar productos, exportar pedidos y tiendas.
 - v3: promociones y combos, banners, favoritos, "Pide de nuevo", fecha y franja de entrega, asignación de vendedor y ruta, cancelación por la tienda mientras está Recibido, prueba de entrega con foto o firma, calificaciones, tablero de ventas con gráficas, alertas de stock bajo, modo oscuro, catálogo sin conexión, comprobante imprimible/PDF y contador de mensajes sin leer.
 - `supabase/esquema.sql` y `supabase/v3.sql`: tablas, funciones y reglas de seguridad. `supabase/ejemplos.sql`: productos de EJEMPLO (precios no reales).
+
+## v4 (rama `mejoras-operativas`, pendiente de despliegue)
+- Aplicar `supabase/v4.sql` en el SQL Editor **después** de `esquema.sql` y `v3.sql`. Reversión: `supabase/v4_revertir.sql` y luego `v3.sql`.
+- Importación Excel atómica (`importar_productos`): todo el lote o nada; registra movimientos.
+- Pedidos: solo se avanza al siguiente estado; "Entregado" solo con quién recibió + foto/firma (`entregar_pedido`).
+- Inventario: tabla `inventario_movimientos`, ajustes con motivo (`ajustar_inventario`), pestaña Admin › Inventario.
+- Combos: `combo_componentes`; vender un combo descuenta también sus componentes y cancelar los repone.
+- Tablero: pendientes por estado y productos más pedidos por unidades. Catálogo: búsqueda por palabras; "Repetir mi último pedido".
+- Pruebas: `node tests/reglas.test.mjs` y `NODE_PATH=<ruta a node_modules con @electric-sql/pglite> node tests/sql.test.mjs` (Postgres en memoria con datos ficticios).

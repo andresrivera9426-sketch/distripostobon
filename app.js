@@ -168,7 +168,7 @@ async function vCatalogo() {
   <div id="grid" class="grid"></div>`;
   const pintar = () => {
     const q = sinTilde(S.q);
-    let l = activos.filter(p => (S.cat === "Todo" || p.categoria === S.cat) && (S.filtro !== "fav" || S.favs.has(p.id)) && (S.filtro !== "promo" || enPromo(p)) && (!q || sinTilde(p.nombre + " " + p.presentacion + " " + p.categoria + " " + (p.descripcion || "")).includes(q)));
+    let l = activos.filter(p => (S.cat === "Todo" || p.categoria === S.cat) && (S.filtro !== "fav" || S.favs.has(p.id)) && (S.filtro !== "promo" || enPromo(p)) && (!q || DPReglas.coincide(p.nombre + " " + p.presentacion + " " + p.categoria + " " + (p.descripcion || ""), q)));
     if (S.orden === "pa") l.sort((a, b) => precioDe(a) - precioDe(b)); if (S.orden === "pd") l.sort((a, b) => precioDe(b) - precioDe(a)); if (S.orden === "n") l.sort((a, b) => a.nombre.localeCompare(b.nombre));
     $("#grid").innerHTML = l.length ? l.map(tarjeta).join("") : `<div class="empty">${S.productos.length ? (S.filtro === "fav" ? "Aún no tienes favoritos. Toca ♡ en un producto." : "No hay productos con ese filtro.") : "Aún no hay productos. El administrador los carga desde su panel."}</div>`;
     const fr = $("#frec"); if (fr) fr.innerHTML = S.frecuentes.map(tarjeta).join("");
@@ -281,10 +281,17 @@ async function vPerfil() {
 // ---------- Pedidos ----------
 function tagEstado(e) { return `<span class="est e${ESTADOS.indexOf(e)}${e === "Cancelado" ? " red" : ""}">${ICON[e] || ""} ${esc(e)}</span>`; }
 function estrellas(n) { return n ? `<span class="stars" aria-label="${n} de 5 estrellas">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>` : ""; }
+async function repetirPedido(items) {
+  await cargarCatalogo(); let n = 0, falt = 0;
+  items.forEach(i => { const p = S.productos.find(x => x.id === i.producto_id && x.activo && x.stock > 0); if (p) { S.carrito[p.id] = Math.min(p.stock, (S.carrito[p.id] || 0) + i.cantidad); n++; } else falt++; });
+  guardarCarrito(); toast(`${n} producto(s) al carrito${falt ? ` · ${falt} ya no disponible(s)` : ""}`); location.hash = "#/carrito";
+}
 async function vMisPedidos() {
-  const T = S.navTok; const { data, error } = await sb.from("pedidos").select("*").eq("cliente_id", S.user.id).order("creado", { ascending: false }).limit(100); if (error) throw error; if (!vigente(T)) return;
-  app.innerHTML = `<h2>Mis pedidos</h2><a class="btn ghost w" href="#/seguir">🔎 Buscar por código</a>
+  const T = S.navTok; const { data, error } = await sb.from("pedidos").select("*, pedido_items(producto_id,cantidad)").eq("cliente_id", S.user.id).order("creado", { ascending: false }).limit(100); if (error) throw error; if (!vigente(T)) return;
+  const ult = data.find(o => o.estado !== "Cancelado");
+  app.innerHTML = `<h2>Mis pedidos</h2>${ult ? `<button class="btn y w" id="repUlt">🔁 Repetir mi último pedido (${esc(ult.codigo)})</button>` : ""}<a class="btn ghost w" href="#/seguir">🔎 Buscar por código</a>
   ${data.length ? `<div class="card list">${data.map(o => `<a class="row" href="#/pedido/${o.codigo}"><div class="grow"><b>${o.codigo}</b><small>${fecha(o.creado)}${o.fecha_entrega ? " · Entrega " + fechaCorta(o.fecha_entrega) : ""}</small>${estrellas(o.calificacion)}</div>${tagEstado(o.estado)}<b class="num">${cop(o.total)}</b></a>`).join("")}</div>` : `<div class="empty">Aún no has hecho pedidos.</div>`}`;
+  if (ult) $("#repUlt").onclick = () => repetirPedido(ult.pedido_items);
 }
 function vSeguir() {
   app.innerHTML = `<h2>Seguir pedido</h2><form id="f" class="card"><label>Código del pedido<input name="c" required placeholder="DP-XXXXX" style="text-transform:uppercase" autocomplete="off"></label><button class="btn w">Buscar</button></form>`;
@@ -298,7 +305,7 @@ async function vPedido(codigo) {
   const h = o.pedido_historial.sort((a, b) => new Date(a.creado) - new Date(b.creado)), idx = ESTADOS.indexOf(o.estado);
   const cuando = e => { const x = h.filter(y => y.estado === e).pop(); return x ? fecha(x.creado) : ""; };
   const r = rol(), cerr = ["Entregado", "Cancelado"].includes(o.estado);
-  const sig = { vendedor: ESTADOS.slice(1), administrador: ESTADOS.slice(1), bodega: ["Alistando", "En ruta", "Entregado"] }[r] || [];
+  const sig = DPReglas.siguientesEstados(r, o.estado);
   if (!staff() && !S.config.franjas) await cargarCatalogo();
   const telV = staff() ? o.cliente?.telefono : S.config.whatsapp_vendedor;
   const [fFoto, fFirma, eq] = await Promise.all([urlPrueba(o.prueba_foto), urlPrueba(o.prueba_firma), ["vendedor", "administrador"].includes(r) && !cerr ? sb.rpc("equipo_ventas") : { data: [] }]);
@@ -317,10 +324,10 @@ async function vPedido(codigo) {
   <div class="btns noprint"><button class="btn ghost" id="imp">🖨️ Imprimir / PDF</button>${!staff() ? `<button class="btn ghost" id="rep">🔁 Repetir pedido</button>` : ""}${!staff() && o.estado === "Recibido" ? `<button class="btn red" id="canc">Cancelar pedido</button>` : ""}</div></div>
   ${!staff() && o.estado === "Entregado" && !o.calificacion ? `<div class="card noprint"><h3>¿Cómo te fue con este pedido?</h3><div class="rate" role="radiogroup" aria-label="Calificación">${[1, 2, 3, 4, 5].map(n => `<button data-s="${n}" role="radio" aria-checked="false" aria-label="${n} estrellas">☆</button>`).join("")}</div><textarea id="com" maxlength="300" placeholder="Comentario opcional" aria-label="Comentario"></textarea><button id="cal" class="btn w" disabled>Enviar calificación</button></div>` : ""}
   ${["vendedor", "administrador"].includes(r) && !cerr ? `<div class="card noprint"><h3>Asignación</h3><div class="two"><label>Vendedor<select id="asV"><option value="">Sin asignar</option>${equipo.map(v => `<option value="${v.id}" ${v.id === o.vendedor_id ? "selected" : ""}>${esc(v.nombre)}</option>`).join("")}</select></label><label>Ruta<input id="asR" maxlength="80" value="${esc(o.ruta || "")}" placeholder="Ej.: Norte"></label></div><button id="asG" class="btn ghost w">Guardar asignación</button></div>` : ""}
-  ${staff() && !cerr ? `<div class="card noprint"><h3>Cambiar estado</h3><div class="btns">${sig.map(e => `<button class="btn ${e === o.estado ? "dis" : ""}" data-e="${e}" ${e === o.estado ? "disabled" : ""}>${ICON[e]} ${e}</button>`).join("")}${r !== "bodega" ? `<button class="btn red" data-e="Cancelado">Cancelar</button>` : ""}</div></div>` : ""}
+  ${staff() && !cerr && (sig.length || DPReglas.puedeCancelar(r, o.estado)) ? `<div class="card noprint"><h3>Siguiente paso</h3><div class="btns">${sig.map(e => `<button class="btn" data-e="${e}">${ICON[e]} ${e === "Entregado" ? "Registrar entrega" : "Marcar " + e}</button>`).join("")}${DPReglas.puedeCancelar(r, o.estado) ? `<button class="btn red" data-e="Cancelado">Cancelar</button>` : ""}</div>${sig.includes("Entregado") ? `<p class="muted small">Para cerrar la entrega se exige quién recibió y foto o firma.</p>` : ""}</div>` : ""}
   <div class="card noprint"><h3>Chat de este pedido</h3>${botonesLlamada(o.sala, telV, "Pedido " + o.codigo)}<div id="chatBox"></div></div>`;
   $("#imp").onclick = () => print();
-  const rep = $("#rep"); if (rep) rep.onclick = async () => { await cargarCatalogo(); let n = 0, falt = 0; o.pedido_items.forEach(i => { const p = S.productos.find(x => x.id === i.producto_id && x.activo && x.stock > 0); if (p) { S.carrito[p.id] = Math.min(p.stock, (S.carrito[p.id] || 0) + i.cantidad); n++; } else falt++; }); guardarCarrito(); toast(`${n} producto(s) al carrito${falt ? ` · ${falt} ya no disponible(s)` : ""}`); location.hash = "#/carrito"; };
+  const rep = $("#rep"); if (rep) rep.onclick = () => repetirPedido(o.pedido_items);
   const cc = $("#canc"); if (cc) cc.onclick = async () => { const m = prompt("¿Por qué cancelas? (opcional)"); if (m === null) return; const { error } = await sb.rpc("cambiar_estado", { p_pedido: o.id, p_estado: "Cancelado", p_motivo: m }); if (error) return toast(errMsg(error), 1); toast("Pedido cancelado"); vPedido(o.codigo); };
   let est = 0; app.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { est = +b.dataset.s; app.querySelectorAll("[data-s]").forEach(x => { x.textContent = +x.dataset.s <= est ? "★" : "☆"; x.setAttribute("aria-checked", +x.dataset.s === est); }); $("#cal").disabled = false; });
   const cal = $("#cal"); if (cal) cal.onclick = async () => { const { error } = await sb.rpc("calificar_pedido", { p_pedido: o.id, p_estrellas: est, p_comentario: $("#com").value }); if (error) return toast(errMsg(error), 1); toast("¡Gracias por calificar!"); vPedido(o.codigo); };
@@ -456,9 +463,9 @@ async function libro(hojas, nombre) {
 
 // ---------- Administración ----------
 async function vAdmin(tab = "tablero") {
-  const T = [["tablero", "📊 Tablero"], ["productos", "📦 Productos"], ["banners", "🖼️ Banners"], ["usuarios", "👥 Usuarios"], ["clientes", "🏪 Tiendas"], ["ajustes", "⚙️ Ajustes"]];
+  const T = [["tablero", "📊 Tablero"], ["productos", "📦 Productos"], ["inventario", "🏷️ Inventario"], ["banners", "🖼️ Banners"], ["usuarios", "👥 Usuarios"], ["clientes", "🏪 Tiendas"], ["ajustes", "⚙️ Ajustes"]];
   app.innerHTML = `<h2>Administración</h2><div class="cats">${T.map(([k, n]) => `<a class="cat ${k === tab ? "on" : ""}" href="#/admin/${k}">${n}</a>`).join("")}</div><div id="ad"></div>`;
-  await ({ tablero: aTablero, productos: aProductos, banners: aBanners, usuarios: aUsuarios, clientes: aClientes, ajustes: aAjustes }[tab] || aTablero)($("#ad"));
+  await ({ tablero: aTablero, productos: aProductos, inventario: aInventario, banners: aBanners, usuarios: aUsuarios, clientes: aClientes, ajustes: aAjustes }[tab] || aTablero)($("#ad"));
 }
 function barras(rows, fmt = cop) {
   if (!rows.length) return `<p class="muted small">Sin datos en este periodo.</p>`;
@@ -471,8 +478,9 @@ function columnas(rows) {
 }
 async function aTablero(el, dias = 30) {
   const desde = new Date(Date.now() - dias * 864e5).toISOString();
-  const [{ data, error }] = await Promise.all([sb.from("pedidos").select("total,estado,creado,calificacion, cliente:profiles!pedidos_cliente_id_fkey(nombre), vendedor:profiles!pedidos_vendedor_id_fkey(nombre), pedido_items(nombre,cantidad,precio)").gte("creado", desde).limit(5000), cargarCatalogo()]);
+  const [{ data, error }] = await Promise.all([sb.from("pedidos").select("total,estado,creado,calificacion, cliente:profiles!pedidos_cliente_id_fkey(nombre), vendedor:profiles!pedidos_vendedor_id_fkey(nombre), pedido_items(nombre,presentacion,cantidad,precio)").gte("creado", desde).limit(5000), cargarCatalogo()]);
   if (error) throw error;
+  const rt = DPReglas.resumenTablero(data);
   const v = data.filter(o => o.estado !== "Cancelado"), tot = v.reduce((a, o) => a + Number(o.total), 0);
   const cal = data.filter(o => o.calificacion), prom = cal.length ? (cal.reduce((a, o) => a + o.calificacion, 0) / cal.length).toFixed(1) : "–";
   const sum = (arr, key, val) => { const m = {}; arr.forEach(x => { const k = key(x); if (k) m[k] = (m[k] || 0) + val(x); }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
@@ -483,7 +491,8 @@ async function aTablero(el, dias = 30) {
   el.innerHTML = `<div class="cats">${[7, 30, 90].map(d => `<button class="cat ${d === dias ? "on" : ""}" data-d="${d}">Últimos ${d} días</button>`).join("")}</div>
    <div class="kpis k4"><div><small>Ventas</small><b>${cop(tot)}</b></div><div><small>Pedidos</small><b>${v.length}</b></div><div><small>Ticket promedio</small><b>${cop(v.length ? tot / v.length : 0)}</b></div><div><small>Calificación</small><b>${prom} ★</b></div></div>
    <div class="card"><h3>Ventas por día${dias > 30 ? " (últimos 30)" : ""}</h3>${columnas(porDia)}</div>
-   <div class="dash"><div class="card"><h3>Productos más vendidos</h3>${barras(sum(v.flatMap(o => o.pedido_items), i => i.nombre, i => i.precio * i.cantidad).slice(0, 8))}</div>
+   <div class="card"><h3>⏳ Pendientes por atender (${rt.totalPendientes}) <a class="small" href="#/panel">Ver panel →</a></h3>${barras(rt.pendientes, n => n)}<p class="muted small">Pedidos del periodo aún sin entregar ni cancelar.</p></div>
+   <div class="dash"><div class="card"><h3>Productos más pedidos (unidades)</h3>${barras(rt.masPedidos.slice(0, 8), n => n.toLocaleString("es-CO"))}</div><div class="card"><h3>Productos más vendidos ($)</h3>${barras(sum(v.flatMap(o => o.pedido_items), i => i.nombre, i => i.precio * i.cantidad).slice(0, 8))}</div>
    <div class="card"><h3>Mejores tiendas</h3>${barras(sum(v, o => o.cliente?.nombre, o => Number(o.total)).slice(0, 8))}</div>
    <div class="card"><h3>Por vendedor asignado</h3>${barras(sum(v, o => o.vendedor?.nombre || "Sin asignar", o => Number(o.total)).slice(0, 8))}</div>
    <div class="card"><h3>Pedidos por estado</h3>${barras(sum(data, o => o.estado, () => 1), n => n)}</div></div>
@@ -494,7 +503,7 @@ async function aProductos(el) {
   await cargarCatalogo();
   if (!el.isConnected) return;
   el.innerHTML = `<div class="btns"><button id="nuevo" class="btn y">➕ Nuevo producto</button><label class="btn ghost">📥 Importar Excel<input id="imp" type="file" accept=".xlsx,.xls,.csv" hidden></label><button id="exp" class="btn ghost">⬇️ Exportar Excel</button><button id="pla" class="btn ghost">📄 Plantilla</button></div>
-  <p class="muted small">Plantilla: Producto, Cantidad disponible, Precio COP, Imagen URL (https). También acepta las columnas anteriores (Nombre, Stock, Foto…). Vista previa antes de guardar: si hay errores en alguna fila, se bloquea todo el lote. Drive e IA quedan para una fase 2 (sin botones simulados).</p>
+  <p class="muted small">Plantilla: Producto, Cantidad disponible, Precio COP, Imagen URL (https). También acepta las columnas anteriores (Nombre, Stock, Foto…). Vista previa antes de guardar: si hay errores en alguna fila, se bloquea todo el lote; al confirmar se guarda todo o nada (sin importaciones parciales). Drive e IA quedan para una fase 2 (sin botones simulados).</p>
   <input id="bq" type="search" placeholder="🔎 Buscar producto…" aria-label="Buscar producto"><div class="card list" id="lp"></div>`;
   const al = S.config.stock_alerta ?? 10;
   const pintar = t => { t = (t || "").toLowerCase(); const l = S.productos.filter(p => !t || (p.nombre + p.categoria).toLowerCase().includes(t));
@@ -532,15 +541,10 @@ async function mostrarVistaPreviaImport(el, parsed) {
     const reemplazos = parsed.ok.filter(x => x.accion === "actualizar");
     if (reemplazos.length && !confirm(`Se reemplazará el stock de ${reemplazos.length} producto(s) existentes. ¿Continuar?`)) return;
     $("#okImp").disabled = true;
-    let n = 0;
-    for (const it of parsed.ok) {
-      const p = { ...it.producto };
-      if (!p.foto_url && it.existente) delete p.foto_url;
-      const { error } = it.existente ? await sb.from("productos").update(p).eq("id", it.existente.id) : await sb.from("productos").insert(p);
-      if (!error) n++;
-    }
+    const { data, error } = await sb.rpc("importar_productos", { p_filas: DPReglas.filasImportacion(parsed) });
+    if (error) { $("#okImp").disabled = false; return toast((/importar_productos/.test(error.message) ? "Falta aplicar la migración supabase/v4.sql. " : "") + "No se guardó ningún producto: " + errMsg(error), 1); }
     cerrarModal();
-    toast(`Importados ${n} de ${parsed.ok.length} productos`);
+    toast(`Importación completa: ${data.creados} creados · ${data.actualizados} actualizados`);
     aProductos(el);
   };
 }
@@ -601,6 +605,51 @@ async function aUsuarios(el) {
     ${u.rol === "administrador" ? `<span class="tag">Administrador</span>` : `<select data-u="${u.id}" aria-label="Rol de ${esc(u.nombre)}">${["cliente", "vendedor", "bodega"].map(r => `<option value="${r}" ${u.rol === r ? "selected" : ""}>${ROLES[r]}</option>`).join("")}</select>`}</div>`).join(""); };
   pintar(); $("#bq").oninput = debounce(e => pintar(e.target.value));
   $("#lu").onchange = async e => { const s = e.target.closest("select"); if (!s) return; const { error } = await sb.rpc("asignar_rol", { p_usuario: s.dataset.u, p_rol: s.value }); if (error) { toast(errMsg(error), 1); } else toast("Rol actualizado"); aUsuarios(el); };
+}
+async function aInventario(el) {
+  await cargarCatalogo();
+  const [mv, cc] = await Promise.all([
+    sb.from("inventario_movimientos").select("id,tipo,cantidad,stock_resultante,nota,creado,producto:productos(nombre,presentacion),pedido:pedidos(codigo)").order("id", { ascending: false }).limit(200),
+    sb.from("combo_componentes").select("combo_id,componente_id,cantidad")]);
+  if (!el.isConnected) return;
+  if (mv.error || cc.error) { el.innerHTML = `<div class="note warn">No pude leer el inventario. Si aún no se aplicó la migración <b>supabase/v4.sql</b>, aplícala primero. (${esc(errMsg(mv.error || cc.error))})</div>`; return; }
+  const nom = p => p ? `${p.nombre}${p.presentacion ? " · " + p.presentacion : ""}` : "(eliminado)";
+  const opts = S.productos.map(p => `<option value="${p.id}">${esc(nom(p))} — stock ${p.stock}</option>`).join("");
+  const combos = S.productos.filter(p => p.categoria === "Combos" || cc.data.some(c => c.combo_id === p.id));
+  const TIPO = { entrada: "Entrada", salida: "Salida", ajuste: "Conteo", venta: "Venta", devolucion: "Devolución", importacion: "Excel" };
+  el.innerHTML = `<form id="fmv" class="card"><h3>Registrar movimiento</h3>
+    <label>Producto<select name="p" required>${opts}</select></label>
+    <div class="two"><label>Tipo<select name="t"><option value="entrada">Entrada (suma)</option><option value="salida">Salida / merma (resta)</option><option value="ajuste">Conteo físico (fija el stock)</option></select></label><label>Cantidad<input name="q" type="number" min="0" required inputmode="numeric"></label></div>
+    <label>Motivo<input name="n" required maxlength="200" placeholder="Ej.: llegó camión, rotura, conteo del lunes"></label>
+    <button class="btn y w">Guardar movimiento</button></form>
+   <div class="card"><h3>Combos y sus componentes</h3><p class="muted small">Al vender un combo se descuenta su stock y el de cada componente. Aparecen los productos de la categoría “Combos” o que ya tengan componentes.</p>
+    ${combos.length ? combos.map(c => `<div class="row"><div class="grow"><b>${esc(nom(c))}</b><small>${cc.data.filter(x => x.combo_id === c.id).map(x => `${x.cantidad} × ${esc(nom(S.productos.find(p => p.id === x.componente_id)))}`).join(" · ") || "Sin componentes definidos"}</small></div><button class="btn sm ghost" data-co="${c.id}">Editar</button></div>`).join("") : `<p class="muted small">No hay combos. Crea un producto con categoría “Combos”.</p>`}</div>
+   <div class="card"><h3>Últimos movimientos</h3><div class="list">${mv.data.map(m => `<div class="row"><div class="grow"><b>${esc(nom(m.producto))}</b><small>${TIPO[m.tipo] || esc(m.tipo)} · ${fecha(m.creado)}${m.pedido ? " · " + esc(m.pedido.codigo) : ""}${m.nota ? " · " + esc(m.nota) : ""}</small></div><b class="num ${m.cantidad < 0 ? "red-t" : "ok-t"}">${m.cantidad > 0 ? "+" : ""}${m.cantidad}</b><small>→ ${m.stock_resultante}</small></div>`).join("") || `<div class="empty">Sin movimientos todavía.</div>`}</div></div>`;
+  $("#fmv").onsubmit = async e => {
+    e.preventDefault(); const f = new FormData(e.target);
+    const { error } = await sb.rpc("ajustar_inventario", { p_prod: f.get("p"), p_tipo: f.get("t"), p_cantidad: +f.get("q"), p_nota: f.get("n") });
+    if (error) return toast(errMsg(error), 1); toast("Movimiento guardado"); aInventario(el);
+  };
+  el.querySelectorAll("[data-co]").forEach(b => b.onclick = () => formCombo(el, S.productos.find(p => p.id === b.dataset.co), cc.data.filter(x => x.combo_id === b.dataset.co)));
+}
+function formCombo(el, combo, actuales) {
+  const cand = S.productos.filter(p => p.id !== combo.id && p.categoria !== "Combos");
+  const fila = (x = {}) => `<div class="two cfila"><select class="cp" aria-label="Componente"><option value="">— Producto —</option>${cand.map(p => `<option value="${p.id}" ${p.id === x.componente_id ? "selected" : ""}>${esc(p.nombre)}${p.presentacion ? " · " + esc(p.presentacion) : ""}</option>`).join("")}</select><input class="cq" type="number" min="1" max="999" value="${x.cantidad || 1}" inputmode="numeric" aria-label="Cantidad"></div>`;
+  modal(`<form id="fc"><h3>Componentes de ${esc(combo.nombre)}</h3><div id="cfs">${(actuales.length ? actuales : [{}]).map(fila).join("")}</div>
+    <button type="button" class="btn ghost sm" id="cadd">➕ Componente</button>
+    <div class="btns"><button class="btn y">Guardar</button><button type="button" class="btn ghost" id="cx">Cancelar</button></div></form>`);
+  $("#cadd").onclick = () => $("#cfs").insertAdjacentHTML("beforeend", fila());
+  $("#cx").onclick = cerrarModal;
+  $("#fc").onsubmit = async e => {
+    e.preventDefault();
+    const filas = [...document.querySelectorAll(".cfila")].map(d => ({ combo_id: combo.id, componente_id: d.querySelector(".cp").value, cantidad: +d.querySelector(".cq").value })).filter(x => x.componente_id);
+    if (new Set(filas.map(x => x.componente_id)).size !== filas.length) return toast("Hay un componente repetido", 1);
+    if (filas.some(x => !(x.cantidad >= 1 && x.cantidad <= 999))) return toast("Cantidad inválida", 1);
+    const quitar = actuales.filter(a => !filas.some(x => x.componente_id === a.componente_id)).map(a => a.componente_id);
+    if (quitar.length) { const { error } = await sb.from("combo_componentes").delete().eq("combo_id", combo.id).in("componente_id", quitar); if (error) return toast(errMsg(error), 1); }
+    if (filas.length) { const { error } = await sb.from("combo_componentes").upsert(filas); if (error) return toast(errMsg(error), 1); }
+    cerrarModal(); toast("Combo guardado"); aInventario(el);
+  };
 }
 async function aClientes(el) {
   const { data } = await sb.from("profiles").select("nombre,cedula,telefono,direccion,correo,creado,id").eq("rol", "cliente").order("nombre").limit(5000);
