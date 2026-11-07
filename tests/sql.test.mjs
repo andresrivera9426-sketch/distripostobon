@@ -4,7 +4,8 @@ import { createRequire } from "node:module"; import fs from "node:fs"; import as
 const { PGlite } = createRequire(import.meta.url)("@electric-sql/pglite");
 const db = new PGlite(); const rd = f => fs.readFileSync(new URL("../" + f, import.meta.url), "utf8");
 await db.exec(rd("tests/supabase_stub.sql"));
-for (const f of ["supabase/esquema.sql", "supabase/v3.sql", "supabase/v4.sql"]) await db.exec(rd(f).replace(/create extension[^;]*;/g, ""));
+const MIG = ["supabase/esquema.sql", "supabase/v3.sql", "supabase/v4.sql", ...(process.env.HASTA === "v4" ? [] : ["supabase/v5.sql"])];
+for (const f of MIG) await db.exec(rd(f).replace(/create extension[^;]*;/g, ""));
 const U = { admin: "00000000-0000-0000-0000-00000000000a", bod: "00000000-0000-0000-0000-00000000000b", cli: "00000000-0000-0000-0000-00000000000c" };
 for (const [k, id] of Object.entries(U)) { await db.query("insert into auth.users(id,email) values($1,$2)", [id, k + "@prueba.test"]); await db.query("update public.profiles set rol=$2 where id=$1", [id, { admin: "administrador", bod: "bodega", cli: "cliente" }[k]]); }
 const as = async (u, sql, p = []) => { await db.query("select set_config('test.uid',$1,false)", [U[u]]); return (await db.query(sql, p)).rows; };
@@ -64,9 +65,10 @@ console.log(`\n${n} pruebas SQL OK`);
 // Reversión: v4_revertir.sql + v3.sql deben aplicar sin error y conservar productos
 await db.query("select set_config('test.uid','',false)");
 const antes = (await db.query("select count(*)::int c from productos")).rows[0].c;
+if (MIG.includes("supabase/v5.sql")) await db.exec(rd("supabase/v5_revertir.sql"));
 await db.exec(rd("supabase/v4_revertir.sql")); await db.exec(rd("supabase/v3.sql"));
 assert.equal((await db.query("select count(*)::int c from productos")).rows[0].c, antes);
 assert.equal((await db.query("select to_regclass('public.inventario_movimientos') r")).rows[0].r, null);
 console.log("✓ reversión aplica y conserva productos");
 // Reaplicar v4 es idempotente
-await db.exec(rd("supabase/v4.sql")); await db.exec(rd("supabase/v4.sql")); console.log("✓ v4 se puede aplicar dos veces");
+for (const f of MIG.slice(2)) { await db.exec(rd(f)); await db.exec(rd(f)); } console.log("✓ migraciones se pueden aplicar dos veces");
