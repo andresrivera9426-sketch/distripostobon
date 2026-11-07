@@ -15,7 +15,7 @@ const hoyISO = (add = 0) => new Date(Date.now() + add * 864e5).toLocaleDateStrin
 const staff = () => S.perfil && S.perfil.rol !== "cliente";
 const rol = () => S.perfil?.rol;
 const enPromo = p => p.precio_promo != null && Number(p.precio_promo) < Number(p.precio);
-const precioDe = p => enPromo(p) ? Number(p.precio_promo) : Number(p.precio);
+const precioDe = p => precioCant(p, 1); // v5: precio propio de la tienda si existe (ver v5.js)
 const vigente = t => t === S.navTok;
 const debounce = (f, ms = 180) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); }; };
 const XLSX_URL = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
@@ -136,7 +136,7 @@ function barra() {
   if (!n || staff() || h !== "") { bar.classList.add("hidden"); return; }
   bar.classList.remove("hidden"); $("#barN").textContent = n + " producto" + (n > 1 ? "s" : ""); $("#barT").textContent = cop(totalCarrito());
 }
-function totalCarrito() { return Object.entries(S.carrito).reduce((t, [id, q]) => { const p = S.productos.find(x => x.id === id); return t + (p ? precioDe(p) * q : 0); }, 0); }
+function totalCarrito() { return Object.entries(S.carrito).reduce((t, [id, q]) => { const p = S.productos.find(x => x.id === id); return t + (p ? precioCant(p, q) * q : 0); }, 0); }
 function foto(p, cls = "ph") { return p.foto_url ? `<img class="${cls}" src="${esc(p.foto_url)}" alt="" loading="lazy" decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
 function tarjeta(p) {
   const c = S.carrito[p.id] || 0, ago = p.stock <= 0, fav = S.favs.has(p.id), pr = enPromo(p);
@@ -149,7 +149,7 @@ function tarjeta(p) {
 const sinTilde = s => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 async function vCatalogo() {
   if (!S.productos.length) app.innerHTML = `<div class="grid">${"<div class='prod sk'></div>".repeat(6)}</div>`;
-  const T = S.navTok; await cargarCatalogo(); await cargarFrecuentes(); if (!vigente(T)) return;
+  const T = S.navTok; await cargarCatalogo(); await Promise.all([cargarFrecuentes(), cargarComercial()]); if (!vigente(T)) return;
   const activos = S.productos.filter(p => p.activo);
   const cats = ["Todo", ...new Set(activos.map(p => p.categoria))];
   if (!cats.includes(S.cat)) S.cat = "Todo";
@@ -195,23 +195,24 @@ async function vCatalogo() {
 }
 
 async function vCarrito() {
-  const T = S.navTok; await cargarCatalogo(); if (!vigente(T)) return;
+  const T = S.navTok; await cargarCatalogo(); await cargarComercial(); if (!vigente(T)) return;
   for (const id in S.carrito) if (!S.productos.find(p => p.id === id && p.activo)) delete S.carrito[id];
   guardarCarrito();
   const items = Object.entries(S.carrito).map(([id, q]) => ({ p: S.productos.find(x => x.id === id), q }));
   const tot = totalCarrito(), min = Number(S.config.pedido_minimo) || 0;
-  const ahorro = items.reduce((a, { p, q }) => a + (p.precio - precioDe(p)) * q, 0);
+  const ahorro = items.reduce((a, { p, q }) => a + (p.precio - precioCant(p, q)) * q, 0);
   if (!items.length) { app.innerHTML = `<div class="empty big">🛒<p>Tu carrito está vacío.</p><a class="btn" href="#/">Ver catálogo</a></div>`; return; }
   const franjas = S.config.franjas || [];
   const prev = { notas: $("#notas")?.value || "", fecha: $("#fecha")?.value, franja: $("#franja")?.value || "" };
   app.innerHTML = `<h2>Tu carrito</h2><div class="card list" id="lc">${items.map(({ p, q }) => `
-    <div class="row">${foto(p, "mini")}<div class="grow"><b>${esc(p.nombre)}</b><small>${esc(p.presentacion)} · ${cop(precioDe(p))}${enPromo(p) ? " 🔥" : ""}</small></div>
-    <div class="qty"><button data-m="${p.id}" aria-label="Quitar uno de ${esc(p.nombre)}">−</button><span>${q}</span><button data-p="${p.id}" aria-label="Agregar uno de ${esc(p.nombre)}">+</button></div><b class="num">${cop(precioDe(p) * q)}</b></div>`).join("")}
-    ${ahorro > 0 ? `<div class="row"><span class="grow ok-t">Ahorro por promociones</span><b class="ok-t">−${cop(ahorro)}</b></div>` : ""}
+    <div class="row">${foto(p, "mini")}<div class="grow"><b>${esc(p.nombre)}</b><small>${esc(p.presentacion)} · ${cop(precioCant(p, q))}${enPromo(p) ? " 🔥" : ""}${textoDescuentos(p) ? ` · <span class="ok-t">${esc(textoDescuentos(p))}</span>` : ""}</small></div>
+    <div class="qty"><button data-m="${p.id}" aria-label="Quitar uno de ${esc(p.nombre)}">−</button><span>${q}</span><button data-p="${p.id}" aria-label="Agregar uno de ${esc(p.nombre)}">+</button></div><b class="num">${cop(precioCant(p, q) * q)}</b></div>`).join("")}
+    ${ahorro > 0 ? `<div class="row"><span class="grow ok-t">Ahorro (promociones y descuentos)</span><b class="ok-t">−${cop(ahorro)}</b></div>` : ""}
     <div class="row tot"><span class="grow">Total</span><b>${cop(tot)}</b></div></div>
     ${tot < min ? `<div class="note warn">Te faltan ${cop(min - tot)} para el pedido mínimo de ${cop(min)}.</div>` : ""}
     <div class="card"><h3>Entrega</h3><div class="two"><label>Fecha preferida<input id="fecha" type="date" min="${hoyISO()}" max="${hoyISO(30)}" value="${prev.fecha || hoyISO(1)}"></label>
      <label>Franja<select id="franja"><option value="">Cualquier hora</option>${franjas.map(f => `<option ${f === prev.franja ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label></div>
+     ${opcionesEntregaZona()}${creditoDisponible() ? `<label>Forma de pago<select id="cond"><option value="contado">Contado</option><option value="credito">Crédito (${creditoDisponible().plazo_dias} días)</option></select></label>` : ""}
      <label>Notas para el vendedor (opcional)<textarea id="notas" maxlength="500" placeholder="Ej.: llamar al llegar">${esc(prev.notas)}</textarea></label></div>
     ${S.offline ? `<div class="note warn">📴 Sin conexión. Tu carrito queda guardado.</div>` : ""}
     ${S.user ? `<button id="enviar" class="btn y w big" ${tot < min || S.offline ? "disabled" : ""}>Enviar pedido · ${cop(tot)}</button>`
@@ -222,10 +223,10 @@ async function vCarrito() {
   $("#vaciar").onclick = () => { if (confirm("¿Vaciar el carrito?")) { S.carrito = {}; guardarCarrito(); vCarrito(); } };
   const env = $("#enviar"); if (env) env.onclick = async () => {
     env.disabled = true; env.textContent = "Enviando…"; pedirPermiso();
-    const { data, error } = await sb.rpc("crear_pedido", { p_items: items.map(({ p, q }) => ({ producto_id: p.id, cantidad: q })), p_notas: $("#notas").value, p_fecha: $("#fecha").value || null, p_franja: $("#franja").value });
+    const { data, error } = await sb.rpc("crear_pedido", { p_items: items.map(({ p, q }) => ({ producto_id: p.id, cantidad: q })), p_notas: $("#notas").value, p_fecha: $("#fecha").value || null, p_franja: $("#franja").value, ...($("#cond")?.value === "credito" ? { p_condicion: "credito" } : {}) });
     if (error) { toast(errMsg(error), 1); env.disabled = false; env.textContent = "Enviar pedido · " + cop(tot); return; }
     S.carrito = {}; guardarCarrito(); sonar();
-    app.innerHTML = `<div class="card ok"><div class="bigi">✅</div><h2>¡Pedido enviado!</h2><p>Tu código de seguimiento es</p><div class="code">${esc(data.codigo)}</div><p>Total ${cop(data.total)}. Te avisamos aquí cada vez que cambie de estado.</p>
+    app.innerHTML = `<div class="card ok"><div class="bigi">✅</div><h2>¡Pedido enviado!</h2><p>Tu código de seguimiento es</p><div class="code">${esc(data.codigo)}</div><p>Total confirmado ${cop(data.total)}. Te avisamos aquí cada vez que cambie de estado.</p>
       <a class="btn w" href="#/pedido/${esc(data.codigo)}">Ver seguimiento</a><a class="btn ghost w" href="#/">Seguir comprando</a></div>`;
   };
 }
@@ -269,10 +270,11 @@ async function vPerfil() {
   app.innerHTML = `<h2>Mi perfil</h2><div class="card"><p><span class="tag">${ROLES[p.rol]}</span> ${esc(p.correo)}</p><form id="f">
    <label>Nombre<input name="nombre" required maxlength="120" value="${esc(p.nombre)}"></label><label>Cédula o NIT<input name="cedula" required maxlength="20" value="${esc(p.cedula)}"></label>
    <label>Teléfono<input name="telefono" required type="tel" maxlength="20" value="${esc(p.telefono)}"></label><label>Dirección<input name="direccion" required maxlength="200" value="${esc(p.direccion)}"></label>
-   <button class="btn w">Guardar cambios</button></form></div>
+   <button class="btn w">Guardar cambios</button></form></div>${p.rol === "cliente" ? `<div id="v5p"></div>` : ""}
    <div class="card"><h3>Preferencias</h3><label>Tema<select id="tema"><option value="auto" ${t === "auto" ? "selected" : ""}>Automático</option><option value="claro" ${t === "claro" ? "selected" : ""}>Claro</option><option value="oscuro" ${t === "oscuro" ? "selected" : ""}>Oscuro</option></select></label>
    <button id="notif" class="btn ghost w">🔔 Activar notificaciones</button><a class="btn ghost w" href="#/clave">🔑 Cambiar contraseña</a>${staff() ? `<a class="btn ghost w" href="#/" onclick="sessionStorage.dpVerCat='1'">🛒 Ver catálogo</a>` : ""}<button id="salir" class="btn red w">Cerrar sesión</button></div>`;
   $("#f").onsubmit = async e => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); for (const k in f) f[k] = f[k].trim(); const { error } = await sb.from("profiles").update(f).eq("id", p.id); if (error) return toast(errMsg(error), 1); await cargarPerfil(); toast("Datos guardados"); };
+  if ($("#v5p")) cargarComercial().then(() => seccionesPerfilCliente($("#v5p")));
   $("#tema").onchange = e => { LS("tema", e.target.value); aplicarTema(); };
   $("#notif").onclick = async () => { if (!("Notification" in window)) return toast("Tu navegador no permite notificaciones", 1); const r = await Notification.requestPermission(); sonar(); toast(r === "granted" ? "Notificaciones activadas" : "No se activaron las notificaciones", r !== "granted"); };
   $("#salir").onclick = async () => { await sb.auth.signOut(); S.carrito = {}; guardarCarrito(); sessionStorage.dpVerCat = ""; ["cat_productos", "perfil"].forEach(k => localStorage.removeItem("dp_" + k)); await cargarPerfil(); location.hash = "#/"; };
@@ -325,6 +327,7 @@ async function vPedido(codigo) {
   ${!staff() && o.estado === "Entregado" && !o.calificacion ? `<div class="card noprint"><h3>¿Cómo te fue con este pedido?</h3><div class="rate" role="radiogroup" aria-label="Calificación">${[1, 2, 3, 4, 5].map(n => `<button data-s="${n}" role="radio" aria-checked="false" aria-label="${n} estrellas">☆</button>`).join("")}</div><textarea id="com" maxlength="300" placeholder="Comentario opcional" aria-label="Comentario"></textarea><button id="cal" class="btn w" disabled>Enviar calificación</button></div>` : ""}
   ${["vendedor", "administrador"].includes(r) && !cerr ? `<div class="card noprint"><h3>Asignación</h3><div class="two"><label>Vendedor<select id="asV"><option value="">Sin asignar</option>${equipo.map(v => `<option value="${v.id}" ${v.id === o.vendedor_id ? "selected" : ""}>${esc(v.nombre)}</option>`).join("")}</select></label><label>Ruta<input id="asR" maxlength="80" value="${esc(o.ruta || "")}" placeholder="Ej.: Norte"></label></div><button id="asG" class="btn ghost w">Guardar asignación</button></div>` : ""}
   ${staff() && !cerr && (sig.length || DPReglas.puedeCancelar(r, o.estado)) ? `<div class="card noprint"><h3>Siguiente paso</h3><div class="btns">${sig.map(e => `<button class="btn" data-e="${e}">${ICON[e]} ${e === "Entregado" ? "Registrar entrega" : "Marcar " + e}</button>`).join("")}${DPReglas.puedeCancelar(r, o.estado) ? `<button class="btn red" data-e="Cancelado">Cancelar</button>` : ""}</div>${sig.includes("Entregado") ? `<p class="muted small">Para cerrar la entrega se exige quién recibió y foto o firma.</p>` : ""}</div>` : ""}
+  <div id="v5ped"></div>
   <div class="card noprint"><h3>Chat de este pedido</h3>${botonesLlamada(o.sala, telV, "Pedido " + o.codigo)}<div id="chatBox"></div></div>`;
   $("#imp").onclick = () => print();
   const rep = $("#rep"); if (rep) rep.onclick = () => repetirPedido(o.pedido_items);
@@ -338,6 +341,7 @@ async function vPedido(codigo) {
     let motivo = ""; if (e === "Cancelado") { motivo = prompt("Motivo de la cancelación (el stock vuelve al inventario):"); if (motivo === null) return; }
     b.disabled = true; const { error } = await sb.rpc("cambiar_estado", { p_pedido: o.id, p_estado: e, p_motivo: motivo }); if (error) { b.disabled = false; return toast(errMsg(error), 1); } toast("Estado: " + e); vPedido(o.codigo);
   });
+  seccionPedidoV5(o, $("#v5ped"));
   chat($("#chatBox"), o.cliente_id, o.id);
 }
 function modalEntrega(o) {
@@ -463,9 +467,9 @@ async function libro(hojas, nombre) {
 
 // ---------- Administración ----------
 async function vAdmin(tab = "tablero") {
-  const T = [["tablero", "📊 Tablero"], ["productos", "📦 Productos"], ["inventario", "🏷️ Inventario"], ["banners", "🖼️ Banners"], ["usuarios", "👥 Usuarios"], ["clientes", "🏪 Tiendas"], ["ajustes", "⚙️ Ajustes"]];
+  const T = [["tablero", "📊 Tablero"], ["productos", "📦 Productos"], ["inventario", "🏷️ Inventario"], ["comercial", "🗺️ Comercial"], ["cartera", "💳 Cartera"], ["cierre", "🧾 Cierre"], ["banners", "🖼️ Banners"], ["usuarios", "👥 Usuarios"], ["clientes", "🏪 Tiendas"], ["ajustes", "⚙️ Ajustes"]];
   app.innerHTML = `<h2>Administración</h2><div class="cats">${T.map(([k, n]) => `<a class="cat ${k === tab ? "on" : ""}" href="#/admin/${k}">${n}</a>`).join("")}</div><div id="ad"></div>`;
-  await ({ tablero: aTablero, productos: aProductos, inventario: aInventario, banners: aBanners, usuarios: aUsuarios, clientes: aClientes, ajustes: aAjustes }[tab] || aTablero)($("#ad"));
+  await ({ tablero: aTablero, productos: aProductos, inventario: aInventario, comercial: aComercial, cartera: aCartera, cierre: aCierre, banners: aBanners, usuarios: aUsuarios, clientes: aClientes, ajustes: aAjustes }[tab] || aTablero)($("#ad"));
 }
 function barras(rows, fmt = cop) {
   if (!rows.length) return `<p class="muted small">Sin datos en este periodo.</p>`;
@@ -624,7 +628,9 @@ async function aInventario(el) {
     <button class="btn y w">Guardar movimiento</button></form>
    <div class="card"><h3>Combos y sus componentes</h3><p class="muted small">Al vender un combo se descuenta su stock y el de cada componente. Aparecen los productos de la categoría “Combos” o que ya tengan componentes.</p>
     ${combos.length ? combos.map(c => `<div class="row"><div class="grow"><b>${esc(nom(c))}</b><small>${cc.data.filter(x => x.combo_id === c.id).map(x => `${x.cantidad} × ${esc(nom(S.productos.find(p => p.id === x.componente_id)))}`).join(" · ") || "Sin componentes definidos"}</small></div><button class="btn sm ghost" data-co="${c.id}">Editar</button></div>`).join("") : `<p class="muted small">No hay combos. Crea un producto con categoría “Combos”.</p>`}</div>
+   <div id="v5lot"></div>
    <div class="card"><h3>Últimos movimientos</h3><div class="list">${mv.data.map(m => `<div class="row"><div class="grow"><b>${esc(nom(m.producto))}</b><small>${TIPO[m.tipo] || esc(m.tipo)} · ${fecha(m.creado)}${m.pedido ? " · " + esc(m.pedido.codigo) : ""}${m.nota ? " · " + esc(m.nota) : ""}</small></div><b class="num ${m.cantidad < 0 ? "red-t" : "ok-t"}">${m.cantidad > 0 ? "+" : ""}${m.cantidad}</b><small>→ ${m.stock_resultante}</small></div>`).join("") || `<div class="empty">Sin movimientos todavía.</div>`}</div></div>`;
+  seccionLotes($("#v5lot"));
   $("#fmv").onsubmit = async e => {
     e.preventDefault(); const f = new FormData(e.target);
     const { error } = await sb.rpc("ajustar_inventario", { p_prod: f.get("p"), p_tipo: f.get("t"), p_cantidad: +f.get("q"), p_nota: f.get("n") });

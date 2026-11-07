@@ -21,3 +21,13 @@ App web (PWA) para que las tiendas hagan pedidos de bebidas, chateen con su vend
 - Combos: `combo_componentes`; vender un combo descuenta también sus componentes y cancelar los repone.
 - Tablero: pendientes por estado y productos más pedidos por unidades. Catálogo: búsqueda por palabras; "Repetir mi último pedido".
 - Pruebas: `node tests/reglas.test.mjs` y `NODE_PATH=<ruta a node_modules con @electric-sql/pglite> node tests/sql.test.mjs` (Postgres en memoria con datos ficticios).
+
+## v5 (misma rama, pendiente de despliegue)
+- Aplicar `supabase/v5.sql` después de `v4.sql`. Reversión: `supabase/v5_revertir.sql` y luego `v4.sql` (exporta antes las tablas v5: la reversión las elimina).
+- Admin › Comercial: zonas y días de entrega, ficha de cada tienda (zona, vendedor, tipo, cupo y plazo), tipos de cliente, precios por tipo, descuentos por cantidad y envases retornables. Nada viene precargado.
+- Crédito: solo si la tienda tiene cupo y plazo; el pedido valida cupo y calcula vencimiento. Abonos (admin o vendedor asignado) con clave de idempotencia; reversos solo admin y auditables. Admin › Cartera.
+- Devoluciones en el pedido entregado: destino “apto para reventa” (vuelve al inventario) o “avería” (no vuelve); nunca más de lo entregado.
+- Envases: la entrega genera saldo por tienda; devolución limitada al saldo; reversos auditables.
+- Lotes: se activan por producto declarando lotes que suman el stock actual; FEFO; no se vende vencido; recepción y baja por lote.
+- Admin › Cierre: resumen del día (hora Colombia), efectivo declarado vs. abonos en efectivo, un cierre vigente por día, anulación con motivo. Registro operativo, no contable.
+- Pruebas: `tests/v5.test.mjs` (PGlite) y `tests/humo.navegador.mjs` (Chrome headless con Supabase falso `tests/supabase_mock.js`).

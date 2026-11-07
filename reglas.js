@@ -48,5 +48,15 @@
       totalPendientes: Object.values(pend).reduce((a, b) => a + b, 0)
     };
   }
-  return { SIGUIENTE, siguientesEstados, puedeCancelar, coincide, filasImportacion, resumenTablero };
+  /** Espejo de public.precio_para: base (tipo o lista), promo si es menor, mayor descuento por cantidad aplicable. */
+  function precioCliente(base, promo, descuentos, cant) {
+    let b = Number(base); if (promo != null && Number(promo) < b) b = Number(promo);
+    const pct = Math.max(0, ...(descuentos || []).filter(d => cant >= d.min).map(d => Number(d.pct)));
+    return Math.round(b * (1 - pct / 100));
+  }
+  /** Valor COP válido: entero > 0. Acepta "20.000" o "$20000". */
+  function copValido(v) { const s = String(v ?? "").replace(/[$\s.]/g, ""); if (!/^\d+$/.test(s)) return null; const n = Number(s); return n > 0 && n <= 1e9 ? n : null; }
+  /** Fecha AAAA-MM-DD en America/Bogota. */
+  function hoyBogota(d = new Date()) { return d.toLocaleDateString("en-CA", { timeZone: "America/Bogota" }); }
+  return { precioCliente, copValido, hoyBogota, SIGUIENTE, siguientesEstados, puedeCancelar, coincide, filasImportacion, resumenTablero };
 });

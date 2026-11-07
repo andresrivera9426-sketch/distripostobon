@@ -38,4 +38,10 @@ t("tablero: más pedidos por unidades y pendientes", () => {
   assert.deepEqual(r.masPedidos, [["B", 5], ["A · x6", 3]]);
   assert.deepEqual(r.pendientes, [["Recibido", 1], ["En ruta", 1]]); assert.equal(r.totalPendientes, 2);
 });
+t("v5: precio cliente, COP y fecha Bogotá", () => {
+  assert.equal(R.precioCliente(18000, null, [{ min: 10, pct: 10 }], 10), 16200); assert.equal(R.precioCliente(18000, null, [{ min: 10, pct: 10 }], 9), 18000);
+  assert.equal(R.precioCliente(20000, 15000, [], 1), 15000); assert.equal(R.precioCliente(20000, 25000, [{ min: 2, pct: 5 }, { min: 5, pct: 8 }], 6), 18400);
+  assert.equal(R.copValido("$20.000"), 20000); assert.equal(R.copValido("0"), null); assert.equal(R.copValido("-5"), null); assert.equal(R.copValido("1,5"), null);
+  assert.equal(R.hoyBogota(new Date("2026-11-08T03:00:00Z")), "2026-11-07"); assert.equal(R.hoyBogota(new Date("2026-11-08T05:00:00Z")), "2026-11-08");
+});
 console.log(`\n${n} pruebas de reglas OK`);
