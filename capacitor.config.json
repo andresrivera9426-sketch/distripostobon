@@ -1,0 +1,11 @@
+{
+  "appId": "co.distripostobon.app",
+  "appName": "DistriPostobon",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false,
+    "adjustMarginsForEdgeToEdge": "force"
+  }
+}

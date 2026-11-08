@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DistriPostobon</string>
+    <string name="title_activity_main">DistriPostobon</string>
+    <string name="package_name">co.distripostobon.app</string>
+    <string name="custom_url_scheme">co.distripostobon.app</string>
+</resources>

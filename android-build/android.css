@@ -1,0 +1,6 @@
+/* Ajustes solo para la app Android */
+html.nativo, html.nativo body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+html.nativo footer { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+html.nativo input, html.nativo select, html.nativo textarea { font-size: 16px; }
+html.nativo .skip { display: none; }
+html.nativo a, html.nativo button { -webkit-user-select: none; user-select: none; }

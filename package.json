@@ -1,0 +1,21 @@
+{
+  "name": "distripostobon-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App Android híbrida (Capacitor) de DistriPostobon: interfaz empaquetada localmente, Auth/BD remotas en Supabase.",
+  "scripts": {
+    "build:web": "node android-build/build-web.mjs",
+    "sync": "npm run build:web && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/app": "7.1.2",
+    "@capacitor/browser": "7.0.5",
+    "@capacitor/core": "7.6.10",
+    "@supabase/supabase-js": "2.45.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@capacitor/android": "7.6.10",
+    "@capacitor/cli": "7.6.10"
+  }
+}
