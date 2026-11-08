@@ -118,7 +118,7 @@ async function router() {
   let [r, ...a] = location.hash.replace(/^#\/?/, "").split("/");
   if (!(r in rutas)) r = "";
   if (S.recovery && r !== "clave") { location.hash = "#/clave"; return; }
-  const priv = !["", "entrar", "carrito"].includes(r);
+  const priv = !["", "entrar", "carrito", "portafolio"].includes(r);
   if (priv && !S.user) { location.hash = "#/entrar"; return; }
   if (["panel", "chats", "conversacion", "admin"].includes(r) && !staff()) { location.hash = "#/"; return; }
   if (r === "admin" && rol() !== "administrador") { location.hash = "#/panel"; return; }
@@ -164,6 +164,7 @@ async function vCatalogo() {
   <div class="search"><input id="q" type="search" placeholder="🔎 Buscar producto…" aria-label="Buscar producto" value="${esc(S.q)}" autocomplete="off">
    <select id="orden" aria-label="Ordenar"><option value="">Orden</option><option value="pa" ${S.orden === "pa" ? "selected" : ""}>Precio ↑</option><option value="pd" ${S.orden === "pd" ? "selected" : ""}>Precio ↓</option><option value="n" ${S.orden === "n" ? "selected" : ""}>Nombre A-Z</option></select></div>
   <div class="cats" role="toolbar" aria-label="Filtros">${S.user && !staff() ? `<button class="cat ${S.filtro === "fav" ? "on" : ""}" data-x="fav">♥ Favoritos</button>` : ""}${activos.some(enPromo) ? `<button class="cat ${S.filtro === "promo" ? "on" : ""}" data-x="promo">🔥 Promos</button>` : ""}${cats.map(c => `<button class="cat ${c === S.cat ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+  ${window.DPPortafolio ? `<a class="btn ghost w" href="#/portafolio">📚 Ver portafolio de referencia (sin precios)</a>` : ""}
   ${S.config.pedido_minimo > 0 ? `<p class="muted small">Pedido mínimo: <b>${cop(S.config.pedido_minimo)}</b></p>` : ""}
   <div id="grid" class="grid"></div>`;
   const pintar = () => {
