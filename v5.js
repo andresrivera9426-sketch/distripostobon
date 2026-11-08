@@ -6,12 +6,29 @@ const nuevaClave = () => (crypto.randomUUID ? crypto.randomUUID() : "10000000-10
 const fechaCO = d => d ? new Date(d + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" }) : "";
 const DIAS = ["", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const sinV5 = e => /does not exist|schema cache|Could not find/i.test(e?.message || "");
+// Capacidades del backend: se leen de config.version_esquema (sin llamar RPC que podrían no existir).
+async function capacidades() { if (S.config.version_esquema === undefined && !S._capLeida) { S._capLeida = true; await cargarCatalogo(); } return DPReglas.capacidades(S.config); }
+function pendienteModulo(el, v, nombre) {
+  el.innerHTML = `<div class="card"><h3>⏳ ${esc(nombre)}: pendiente de activación</h3><p>El código ya está en esta versión de la app, pero la base de datos publicada reporta esquema <b>v${DPReglas.capacidades(S.config).esquema}</b> y este módulo necesita <b>v${v}</b>.</p><p class="muted small">Para activarlo, el administrador técnico debe aplicar <code>supabase/v4_v5_consolidada.sql</code> en Supabase. Hasta entonces este módulo no hace ninguna consulta ni guarda datos.</p><a class="btn ghost" href="#/admin/estado">Ver estado del sistema</a></div>`;
+}
+async function aEstado(el) {
+  const c = await capacidades(); if (!el.isConnected) return;
+  const fila = (ok, t, d) => `<div class="row"><span>${ok === true ? "✅" : ok === false ? "⏳" : "⛔"}</span><div class="grow"><b>${t}</b><small>${d}</small></div></div>`;
+  const nativo = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  el.innerHTML = `<div class="card"><h3>Estado del sistema</h3><p class="muted small">Misma versión de código en web y app Android. Plataforma actual: <b>${nativo ? "App Android" : "Web"}</b>. Esquema de base de datos: <b>v${c.esquema}</b>.</p><div class="list">
+    ${fila(true, "Catálogo, pedidos, chat, panel y tablero", "Activos con la base publicada.")}
+    ${fila(true, "Portafolio de referencia (201 bebidas)", "Consulta local sin precio ni stock; no se puede pedir. Fotos pendientes de autorización de Postobón.")}
+    ${fila(c.v4, "v4: importación todo-o-nada, inventario con movimientos, combos, entrega con evidencia en servidor", c.v4 ? "Activo." : "Pendiente: aplicar migración. La importación funciona en modo compatibilidad (fila por fila).")}
+    ${fila(c.v5, "v5: zonas, precios por tipo, crédito y abonos, devoluciones, envases, lotes, cierre diario", c.v5 ? "Activo (registros operativos, no contabilidad)." : "Pendiente: aplicar migración. Las pantallas muestran este aviso y no consultan la base.")}
+    ${fila(null, "Integración con Google Drive", "No implementada: requiere un cliente OAuth de Google, URL de retorno y almacenamiento seguro del token en el servidor. Nada se envía a Drive desde la app.")}
+  </div></div>`;
+}
 const avisoV5 = e => `<div class="note warn">${sinV5(e) ? "Esta sección requiere aplicar la migración <b>supabase/v5.sql</b>." : esc(errMsg(e))}</div>`;
 
 // ---------- Tienda: precios propios, ficha comercial ----------
 async function cargarComercial() {
   V5.precios = {}; V5.ficha = null;
-  if (!S.user || staff() || S.offline) return;
+  if (!S.user || staff() || S.offline || !DPReglas.capacidades(S.config).v5) return;
   const [p, f] = await Promise.all([sb.rpc("mis_precios"), sb.from("clientes_comercial").select("*, zona:zonas(nombre,dias)").eq("cliente_id", S.user.id).maybeSingle()]);
   if (p.error) { V5.ok = !sinV5(p.error); return; }
   (p.data || []).forEach(r => { V5.precios[r.producto_id] = { precio: Number(r.precio), descuentos: r.descuentos || [] }; });
@@ -31,6 +48,7 @@ function opcionesEntregaZona() {
 }
 
 async function seccionesPerfilCliente(box) {
+  if (!(await capacidades()).v5) { box.innerHTML = ""; return; }
   const [c, e] = await Promise.all([sb.from("cartera").select("*").gt("saldo", 0).order("creado"), sb.from("envases_mov").select("cantidad, envase:envases(nombre)")]);
   if (c.error) { box.innerHTML = sinV5(c.error) ? "" : avisoV5(c.error); return; }
   const env = {}; (e.data || []).forEach(m => { const k = m.envase?.nombre || "Envase"; env[k] = (env[k] || 0) + m.cantidad; });
@@ -45,6 +63,7 @@ async function seccionesPerfilCliente(box) {
 
 // ---------- Pedido: cartera y devoluciones ----------
 async function seccionPedidoV5(o, box) {
+  if (!(await capacidades()).v5) { box.innerHTML = ""; return; }
   const r = rol(), admin = r === "administrador", vendAsig = r === "vendedor" && o.vendedor_id === S.user.id;
   const verCartera = admin || vendAsig || r === "cliente";
   const [ab, dv] = await Promise.all([verCartera ? sb.from("abonos").select("*").eq("pedido_id", o.id).order("id") : { data: [] }, sb.from("devoluciones").select("*").eq("pedido_id", o.id).order("id")]);
@@ -81,6 +100,7 @@ async function seccionPedidoV5(o, box) {
 
 // ---------- Admin › Comercial: zonas, fichas, tipos, precios, descuentos, envases ----------
 async function aComercial(el) {
+  if (!(await capacidades()).v5) return pendienteModulo(el, 5, "Comercial (zonas, precios por tipo, envases)");
   await cargarCatalogo();
   const [z, t, pt, dc, en, pe, cl, cc, eq] = await Promise.all([sb.from("zonas").select("*").order("nombre"), sb.from("tipos_cliente").select("*").order("nombre"), sb.from("precios_tipo").select("*"),
     sb.from("descuentos_cantidad").select("*").order("min_cantidad"), sb.from("envases").select("*").order("nombre"), sb.from("producto_envases").select("*"),
@@ -132,6 +152,7 @@ async function aComercial(el) {
 
 // ---------- Admin › Cartera ----------
 async function aCartera(el) {
+  if (!(await capacidades()).v5) return pendienteModulo(el, 5, "Cartera y envases");
   const [c, cl, en, em] = await Promise.all([sb.from("cartera").select("*").gt("saldo", 0).order("vence_pago", { nullsFirst: false }).limit(2000), sb.from("profiles").select("id,nombre").eq("rol", "cliente").limit(5000),
     sb.from("envases").select("id,nombre"), sb.from("envases_mov").select("id,cliente_id,envase_id,cantidad,tipo,creado,nota,reversa_de").order("id", { ascending: false }).limit(3000)]);
   if (!el.isConnected) return;
@@ -152,6 +173,7 @@ async function aCartera(el) {
 
 // ---------- Admin › Cierre diario ----------
 async function aCierre(el, f) {
+  if (!(await capacidades()).v5) return pendienteModulo(el, 5, "Cierre diario");
   f = f || DPReglas.hoyBogota();
   const [r, c] = await Promise.all([sb.rpc("resumen_dia", { p_fecha: f }), sb.from("cierres").select("*").order("id", { ascending: false }).limit(60)]);
   if (!el.isConnected) return;
@@ -172,6 +194,7 @@ async function aCierre(el, f) {
 
 // ---------- Inventario › Lotes ----------
 async function seccionLotes(box) {
+  if (!(await capacidades()).v5) { box.innerHTML = ""; return; }
   const { data, error } = await sb.from("lotes").select("*").order("vence");
   if (error) { box.innerHTML = sinV5(error) ? "" : avisoV5(error); return; }
   const hoy = DPReglas.hoyBogota(), conLote = S.productos.filter(p => p.exige_lote), sinLote = S.productos.filter(p => !p.exige_lote);

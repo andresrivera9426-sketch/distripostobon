@@ -58,5 +58,10 @@
   function copValido(v) { const s = String(v ?? "").replace(/[$\s.]/g, ""); if (!/^\d+$/.test(s)) return null; const n = Number(s); return n > 0 && n <= 1e9 ? n : null; }
   /** Fecha AAAA-MM-DD en America/Bogota. */
   function hoyBogota(d = new Date()) { return d.toLocaleDateString("en-CA", { timeZone: "America/Bogota" }); }
-  return { precioCliente, copValido, hoyBogota, SIGUIENTE, siguientesEstados, puedeCancelar, coincide, filasImportacion, resumenTablero };
+  /** Qué módulos están activos según config.version_esquema (lo fija cada migración). Sin columna = v3 publicada. */
+  function capacidades(config) {
+    const n = Number(config && config.version_esquema) || 3;
+    return { esquema: n, v4: n >= 4, v5: n >= 5 };
+  }
+  return { capacidades, precioCliente, copValido, hoyBogota, SIGUIENTE, siguientesEstados, puedeCancelar, coincide, filasImportacion, resumenTablero };
 });

@@ -9,3 +9,5 @@ drop table if exists public.combo_componentes;
 drop function if exists public.valida_combo();
 drop table if exists public.inventario_movimientos;
 drop function if exists public.mover_stock(uuid,int,text,uuid,text);
+
+update public.config set version_esquema=3 where id=1;

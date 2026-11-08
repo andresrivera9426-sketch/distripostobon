@@ -35,3 +35,5 @@ drop function if exists public.es_admin();
 drop function if exists public.hoy_co();
 drop trigger if exists cc_valida on public.clientes_comercial;
 drop function if exists public.valida_cliente_comercial();
+
+do $$ begin update public.config set version_esquema=4 where id=1; exception when undefined_column then null; end $$;

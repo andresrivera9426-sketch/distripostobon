@@ -44,4 +44,8 @@ t("v5: precio cliente, COP y fecha Bogotá", () => {
   assert.equal(R.copValido("$20.000"), 20000); assert.equal(R.copValido("0"), null); assert.equal(R.copValido("-5"), null); assert.equal(R.copValido("1,5"), null);
   assert.equal(R.hoyBogota(new Date("2026-11-08T03:00:00Z")), "2026-11-07"); assert.equal(R.hoyBogota(new Date("2026-11-08T05:00:00Z")), "2026-11-08");
 });
+t("capacidades por versión de esquema", () => {
+  assert.deepEqual(R.capacidades({}), { esquema: 3, v4: false, v5: false }); assert.deepEqual(R.capacidades({ version_esquema: 4 }), { esquema: 4, v4: true, v5: false });
+  assert.deepEqual(R.capacidades({ version_esquema: 5 }), { esquema: 5, v4: true, v5: true }); assert.equal(R.capacidades(null).esquema, 3);
+});
 console.log(`\n${n} pruebas de reglas OK`);

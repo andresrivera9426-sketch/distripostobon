@@ -196,3 +196,7 @@ end $$;
 
 revoke all on function public.ajustar_inventario(uuid,text,int,text), public.importar_productos(jsonb), public.crear_pedido(jsonb,text,date,text), public.cambiar_estado(uuid,text,text), public.entregar_pedido(uuid,text,text,text) from anon, public;
 grant execute on function public.ajustar_inventario(uuid,text,int,text), public.importar_productos(jsonb), public.crear_pedido(jsonb,text,date,text), public.cambiar_estado(uuid,text,text), public.entregar_pedido(uuid,text,text,text) to authenticated;
+
+-- Marca de versión: la app activa los módulos solo cuando la base la reporta.
+alter table public.config add column if not exists version_esquema int not null default 3;
+update public.config set version_esquema=greatest(version_esquema,4) where id=1;

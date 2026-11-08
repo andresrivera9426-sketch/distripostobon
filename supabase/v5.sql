@@ -570,3 +570,7 @@ create or replace view public.cartera with (security_invoker = true) as
   from public.pedidos p where p.estado<>'Cancelado'
     and (public.es_admin() or p.cliente_id=auth.uid() or (public.mi_rol()='vendedor' and p.vendedor_id=auth.uid()));
 grant select on public.cartera to authenticated;
+
+-- Marca de versión: la app activa los módulos solo cuando la base la reporta.
+alter table public.config add column if not exists version_esquema int not null default 3;
+update public.config set version_esquema=greatest(version_esquema,5) where id=1;

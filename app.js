@@ -468,9 +468,9 @@ async function libro(hojas, nombre) {
 
 // ---------- Administración ----------
 async function vAdmin(tab = "tablero") {
-  const T = [["tablero", "📊 Tablero"], ["productos", "📦 Productos"], ["inventario", "🏷️ Inventario"], ["comercial", "🗺️ Comercial"], ["cartera", "💳 Cartera"], ["cierre", "🧾 Cierre"], ["banners", "🖼️ Banners"], ["usuarios", "👥 Usuarios"], ["clientes", "🏪 Tiendas"], ["ajustes", "⚙️ Ajustes"]];
+  const T = [["tablero", "📊 Tablero"], ["productos", "📦 Productos"], ["inventario", "🏷️ Inventario"], ["comercial", "🗺️ Comercial"], ["cartera", "💳 Cartera"], ["cierre", "🧾 Cierre"], ["estado", "🩺 Estado"], ["banners", "🖼️ Banners"], ["usuarios", "👥 Usuarios"], ["clientes", "🏪 Tiendas"], ["ajustes", "⚙️ Ajustes"]];
   app.innerHTML = `<h2>Administración</h2><div class="cats">${T.map(([k, n]) => `<a class="cat ${k === tab ? "on" : ""}" href="#/admin/${k}">${n}</a>`).join("")}</div><div id="ad"></div>`;
-  await ({ tablero: aTablero, productos: aProductos, inventario: aInventario, comercial: aComercial, cartera: aCartera, cierre: aCierre, banners: aBanners, usuarios: aUsuarios, clientes: aClientes, ajustes: aAjustes }[tab] || aTablero)($("#ad"));
+  await ({ tablero: aTablero, productos: aProductos, inventario: aInventario, comercial: aComercial, cartera: aCartera, cierre: aCierre, estado: aEstado, banners: aBanners, usuarios: aUsuarios, clientes: aClientes, ajustes: aAjustes }[tab] || aTablero)($("#ad"));
 }
 function barras(rows, fmt = cop) {
   if (!rows.length) return `<p class="muted small">Sin datos en este periodo.</p>`;
@@ -546,6 +546,11 @@ async function mostrarVistaPreviaImport(el, parsed) {
     const reemplazos = parsed.ok.filter(x => x.accion === "actualizar");
     if (reemplazos.length && !confirm(`Se reemplazará el stock de ${reemplazos.length} producto(s) existentes. ¿Continuar?`)) return;
     $("#okImp").disabled = true;
+    if (!(await capacidades()).v4) { // base publicada (v3): mismo guardado fila por fila que ya existe en producción
+      let n = 0; for (const it of parsed.ok) { const p = { ...it.producto }; if (!p.foto_url && it.existente) delete p.foto_url;
+        const { error } = it.existente ? await sb.from("productos").update(p).eq("id", it.existente.id) : await sb.from("productos").insert(p); if (!error) n++; }
+      cerrarModal(); toast(`Importados ${n} de ${parsed.ok.length} (modo compatibilidad: sin garantía de todo-o-nada hasta activar v4)`, n !== parsed.ok.length); return aProductos(el);
+    }
     const { data, error } = await sb.rpc("importar_productos", { p_filas: DPReglas.filasImportacion(parsed) });
     if (error) { $("#okImp").disabled = false; return toast((/importar_productos/.test(error.message) ? "Falta aplicar la migración supabase/v4.sql. " : "") + "No se guardó ningún producto: " + errMsg(error), 1); }
     cerrarModal();
@@ -612,6 +617,7 @@ async function aUsuarios(el) {
   $("#lu").onchange = async e => { const s = e.target.closest("select"); if (!s) return; const { error } = await sb.rpc("asignar_rol", { p_usuario: s.dataset.u, p_rol: s.value }); if (error) { toast(errMsg(error), 1); } else toast("Rol actualizado"); aUsuarios(el); };
 }
 async function aInventario(el) {
+  if (!(await capacidades()).v4) return pendienteModulo(el, 4, "Inventario con movimientos y combos");
   await cargarCatalogo();
   const [mv, cc] = await Promise.all([
     sb.from("inventario_movimientos").select("id,tipo,cantidad,stock_resultante,nota,creado,producto:productos(nombre,presentacion),pedido:pedidos(codigo)").order("id", { ascending: false }).limit(200),

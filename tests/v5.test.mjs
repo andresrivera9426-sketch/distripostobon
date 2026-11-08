@@ -4,7 +4,7 @@ import { createRequire } from "node:module"; import fs from "node:fs"; import as
 const { PGlite } = createRequire(import.meta.url)("@electric-sql/pglite");
 const db = new PGlite(); const rd = f => fs.readFileSync(new URL("../" + f, import.meta.url), "utf8");
 await db.exec(rd("tests/supabase_stub.sql"));
-for (const f of ["supabase/esquema.sql", "supabase/v3.sql", "supabase/v4.sql", "supabase/v5.sql"]) await db.exec(rd(f).replace(/create extension[^;]*;/g, ""));
+for (const f of (process.env.MIG === "consolidada" ? ["supabase/esquema.sql", "supabase/v3.sql", "supabase/v4_v5_consolidada.sql"] : ["supabase/esquema.sql", "supabase/v3.sql", "supabase/v4.sql", "supabase/v5.sql"])) await db.exec(rd(f).replace(/create extension[^;]*;/g, ""));
 // Privilegios por defecto de Supabase para el rol authenticated (las políticas RLS hacen el filtrado)
 await db.exec(`grant usage on schema public, auth, storage to authenticated; grant all on all tables in schema public to authenticated;
   grant usage on all sequences in schema public to authenticated; grant execute on function auth.uid() to authenticated;`);
@@ -146,5 +146,6 @@ await as("admin", "select anular_cierre($1,'Faltó un abono')", [c1]);
 await as("admin", "select cerrar_dia($1::date,0,'')", [hoy]);
 assert.equal((await su("select count(*)::int c from cierres")).at(0).c, 2);
 assert.equal((await as("ven", "select * from cierres")).length, 0); ok("cierre: resumen por día Bogotá, uno vigente por día, anulación auditable, solo admin");
+assert.equal((await su("select version_esquema from config where id=1"))[0].version_esquema, 5); ok("config.version_esquema = 5 tras migrar");
 console.log(`\n${n} pruebas v5 OK (PGlite, no Supabase real)`);
 await db.close(); void pCred;

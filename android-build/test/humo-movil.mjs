@@ -2,7 +2,7 @@
 // No sustituye una prueba en dispositivo Android real.
 import { createRequire } from "node:module"; import http from "node:http"; import fs from "node:fs"; import path from "node:path";
 const puppeteer = createRequire(import.meta.url)("puppeteer-core");
-const R = path.resolve(new URL("../..", import.meta.url).pathname), W = path.join(R, "www"), mock = fs.readFileSync(path.join(R, "android-build/test/supabase_mock.js"), "utf8");
+const R = path.resolve(new URL("../..", import.meta.url).pathname), W = path.join(R, "www"), mock = fs.readFileSync(path.join(R, "tests/supabase_mock.js"), "utf8");
 const T = { ".js": "text/javascript", ".html": "text/html", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" };
 const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split("?")[0]); if (p === "/") p = "/index.html"; const f = path.join(W, p);
   if (!f.startsWith(W) || !fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { "content-type": T[path.extname(f)] || "application/octet-stream" }); r.end(fs.readFileSync(f)); }).listen(0);
@@ -43,6 +43,9 @@ ok(tp.includes("Portafolio de referencia") && tp.includes("Sin precio · sin sto
 await pg.type("#pq", "hatsu 400"); await new Promise(r => setTimeout(r, 400));
 const n = await pg.$$eval("#pl .row", r => r.length); ok(n > 0 && n < 30, "búsqueda en portafolio filtra (" + n + ")");
 await pg.screenshot({ path: path.join(R, "android-build/test/captura-portafolio.png") }); await pg.close();
+pg = await abrir("administrador", "#/admin/estado");
+ok((await pg.$eval("#app", e => e.innerText)).includes("App Android"), "estado del sistema reconoce la app Android y muestra v4/v5 pendientes");
+await pg.screenshot({ path: path.join(R, "android-build/test/captura-estado.png") }); await pg.close();
 ok(!errores.length, "sin errores JS " + errores.join(" | "));
 ok(externas.every(u => u.startsWith("https://")) && !externas.some(u => /cdn\.(jsdelivr|sheetjs)/.test(u)), "sin librerías desde CDN; solicitudes externas solo HTTPS: " + [...new Set(externas.map(u => new URL(u).host))].join(","));
 await br.close(); srv.close(); process.exit(fallos ? 1 : 0);
