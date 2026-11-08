@@ -1,0 +1,42 @@
+// Prueba estática de la interfaz empaquetada (www/) en Chrome con viewport móvil, Supabase FALSO y Capacitor simulado.
+// No sustituye una prueba en dispositivo Android real.
+import { createRequire } from "node:module"; import http from "node:http"; import fs from "node:fs"; import path from "node:path";
+const puppeteer = createRequire(import.meta.url)("puppeteer-core");
+const R = path.resolve(new URL("../..", import.meta.url).pathname), W = path.join(R, "www"), mock = fs.readFileSync(path.join(R, "android-build/test/supabase_mock.js"), "utf8");
+const T = { ".js": "text/javascript", ".html": "text/html", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" };
+const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split("?")[0]); if (p === "/") p = "/index.html"; const f = path.join(W, p);
+  if (!f.startsWith(W) || !fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { "content-type": T[path.extname(f)] || "application/octet-stream" }); r.end(fs.readFileSync(f)); }).listen(0);
+const base = `http://127.0.0.1:${srv.address().port}/`, externas = [];
+const br = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox"] });
+const errores = []; let fallos = 0; const ok = (c, m) => { console.log(c ? "✓" : "✗", m); if (!c) fallos++; };
+async function abrir(rol, ruta) {
+  const pg = await br.newPage(); await pg.setViewport({ width: 393, height: 851, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  pg.on("pageerror", e => errores.push(e.message));
+  await pg.setRequestInterception(true);
+  pg.on("request", q => { const u = q.url(); if (u.endsWith("vendor/supabase.js")) return q.respond({ status: 200, contentType: "text/javascript", body: mock }); if (u.startsWith("data:") || u.startsWith("blob:")) return q.continue(); if (!u.startsWith(base)) { externas.push(u); return q.abort(); } q.continue(); });
+  await pg.evaluateOnNewDocument(() => { window.__abiertos = []; window.__back = null; window.__min = 0;
+    window.Capacitor = { isNativePlatform: () => true, Plugins: { Browser: { open: o => window.__abiertos.push(o.url) }, App: { addListener: (n, f) => { if (n === "backButton") window.__back = f; }, minimizeApp: () => window.__min++ } } };
+    localStorage.setItem("dp_carrito", JSON.stringify({ p1: 2 })); });
+  await pg.goto(base + "?rol=" + rol + ruta, { waitUntil: "networkidle0" }); await new Promise(r => setTimeout(r, 500)); return pg;
+}
+let pg = await abrir("cliente", "#/");
+ok(await pg.$eval("html", e => e.classList.contains("nativo")), "modo nativo activo");
+ok((await pg.$eval("#app", e => e.innerText)).includes("PRUEBA Gaseosa"), "catálogo renderiza desde assets locales");
+await pg.screenshot({ path: path.join(R, "android-build/test/captura-catalogo.png") });
+await pg.evaluate(() => { location.hash = "#/carrito"; }); await new Promise(r => setTimeout(r, 400));
+await pg.evaluate(() => window.__back()); await new Promise(r => setTimeout(r, 400));
+ok(await pg.evaluate(() => location.hash === "" || location.hash === "#/"), "Atrás vuelve a la pantalla anterior");
+await pg.evaluate(() => window.__back()); ok(await pg.evaluate(() => window.__min === 1), "Atrás en inicio minimiza (no cierra sesión)");
+await pg.evaluate(() => modal("<p>x</p>")); await pg.evaluate(() => window.__back());
+ok(await pg.evaluate(() => !document.getElementById("modal").innerHTML.trim()), "Atrás cierra ventana modal primero");
+await pg.evaluate(() => { const a = document.createElement("a"); a.href = "https://wa.me/573000000000"; a.id = "wa"; document.body.append(a); a.click(); });
+ok(await pg.evaluate(() => window.__abiertos[0] === "https://wa.me/573000000000"), "WhatsApp abre fuera de la app (navegador del sistema)");
+await pg.evaluate(() => { const a = document.createElement("a"); a.href = "http://inseguro.test/"; document.body.append(a); a.click(); });
+ok(await pg.evaluate(() => window.__abiertos.length === 1 && !location.href.includes("inseguro")), "enlaces http bloqueados");
+await pg.close();
+pg = await abrir("administrador", "#/pedido/DP-PRUEB");
+ok((await pg.$eval("#app", e => e.innerText)).includes("DP-PRUEB"), "detalle de pedido (staff) renderiza");
+await pg.screenshot({ path: path.join(R, "android-build/test/captura-pedido.png") }); await pg.close();
+ok(!errores.length, "sin errores JS " + errores.join(" | "));
+ok(externas.every(u => u.startsWith("https://")) && !externas.some(u => /cdn\.(jsdelivr|sheetjs)/.test(u)), "sin librerías desde CDN; solicitudes externas solo HTTPS: " + [...new Set(externas.map(u => new URL(u).host))].join(","));
+await br.close(); srv.close(); process.exit(fallos ? 1 : 0);
