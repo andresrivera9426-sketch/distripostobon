@@ -7,9 +7,9 @@ const fechaCO = d => d ? new Date(d + "T12:00:00").toLocaleDateString("es-CO", {
 const DIAS = ["", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const sinV5 = e => /does not exist|schema cache|Could not find/i.test(e?.message || "");
 // Capacidades del backend: se leen de config.version_esquema (sin llamar RPC que podrían no existir).
-async function capacidades() { if (S.config.version_esquema === undefined && !S._capLeida) { S._capLeida = true; await cargarCatalogo(); } return DPReglas.capacidades(S.config); }
+async function capacidades() { if (S.config.version_esquema === undefined) { S._capLeida ||= cargarCatalogo(); await S._capLeida; } return DPReglas.capacidades(S.config); }
 function pendienteModulo(el, v, nombre) {
-  el.innerHTML = `<div class="card"><h3>⏳ ${esc(nombre)}: pendiente de activación</h3><p>El código ya está en esta versión de la app, pero la base de datos publicada reporta esquema <b>v${DPReglas.capacidades(S.config).esquema}</b> y este módulo necesita <b>v${v}</b>.</p><p class="muted small">Para activarlo, el administrador técnico debe aplicar <code>supabase/v4_v5_consolidada.sql</code> en Supabase. Hasta entonces este módulo no hace ninguna consulta ni guarda datos.</p><a class="btn ghost" href="#/admin/estado">Ver estado del sistema</a></div>`;
+  el.innerHTML = `<div class="card"><h3>⏳ ${esc(nombre)}: pendiente de activación</h3><p>El código ya está en esta versión de la app, pero la base de datos publicada reporta esquema <b>v${DPReglas.capacidades(S.config).esquema}</b> y este módulo necesita <b>v${v}</b>.</p><p class="muted small">Para activarlo, el administrador técnico debe aplicar <code>supabase/v4_v5_v6_consolidada.sql</code> (o v4_v5_consolidada.sql + v6.sql) en Supabase. Hasta entonces este módulo no hace ninguna consulta ni guarda datos.</p><a class="btn ghost" href="#/admin/estado">Ver estado del sistema</a></div>`;
 }
 async function aEstado(el) {
   const c = await capacidades(); if (!el.isConnected) return;
@@ -20,6 +20,8 @@ async function aEstado(el) {
     ${fila(true, "Portafolio de referencia (201 bebidas)", "Consulta local sin precio ni stock; no se puede pedir. Fotos pendientes de autorización de Postobón.")}
     ${fila(c.v4, "v4: importación todo-o-nada, inventario con movimientos, combos, entrega con evidencia en servidor", c.v4 ? "Activo." : "Pendiente: aplicar migración. La importación funciona en modo compatibilidad (fila por fila).")}
     ${fila(c.v5, "v5: zonas, precios por tipo, crédito y abonos, devoluciones, envases, lotes, cierre diario", c.v5 ? "Activo (registros operativos, no contabilidad)." : "Pendiente: aplicar migración. Las pantallas muestran este aviso y no consultan la base.")}
+    ${fila(c.v6, "v6: chat mejorado — respuestas citadas, reacciones, búsqueda y paginación, fotos/PDF y notas de voz en almacenamiento privado, editar/eliminar con registro, «visto» solo con lectura real", c.v6 ? "Activo. Los adjuntos consumen Supabase Storage (no Google Drive)." : "Pendiente: aplicar supabase/v6.sql (o v4_v5_v6_consolidada.sql). Mientras tanto el chat funciona en modo básico (solo texto).")}
+    ${fila(null, "Fuera de alcance del chat", "Sin cifrado de extremo a extremo, sin llamadas propias (los botones de llamada abren Jitsi Meet, servicio externo), sin notificaciones con la app cerrada, sin grupos/estados/difusión ni sincronización tipo WhatsApp.")}
     ${fila(null, "Integración con Google Drive", "No implementada: requiere un cliente OAuth de Google, URL de retorno y almacenamiento seguro del token en el servidor. Nada se envía a Drive desde la app.")}
   </div></div>`;
 }

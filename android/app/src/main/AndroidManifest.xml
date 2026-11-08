@@ -39,4 +39,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Notas de voz del chat (MediaRecorder en WebView). RECORD_AUDIO se pide en tiempo de ejecución solo al tocar 🎤.
+         MODIFY_AUDIO_SETTINGS es de instalación (sin diálogo) y Capacitor la exige junto con RECORD_AUDIO para conceder el micrófono a la WebView. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 </manifest>

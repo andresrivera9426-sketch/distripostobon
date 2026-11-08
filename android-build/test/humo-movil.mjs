@@ -43,6 +43,9 @@ ok(tp.includes("Portafolio de referencia") && tp.includes("Sin precio · sin sto
 await pg.type("#pq", "hatsu 400"); await new Promise(r => setTimeout(r, 400));
 const n = await pg.$$eval("#pl .row", r => r.length); ok(n > 0 && n < 30, "búsqueda en portafolio filtra (" + n + ")");
 await pg.screenshot({ path: path.join(R, "android-build/test/captura-portafolio.png") }); await pg.close();
+pg = await abrir("administrador", "&esquema=6#/pedido/DP-PRUEB"); await new Promise(r => setTimeout(r, 500));
+ok(!!(await pg.$("#cMic")) && !!(await pg.$("#cAdj")) && (await pg.$eval("#app", e => e.innerText)).includes("Mensaje eliminado"), "chat v6 en WebView Android (código empaquetado): adjuntos y voz visibles, sin grabar al abrir");
+await pg.close();
 pg = await abrir("administrador", "#/admin/estado");
 ok((await pg.$eval("#app", e => e.innerText)).includes("App Android"), "estado del sistema reconoce la app Android y muestra v4/v5 pendientes");
 await pg.screenshot({ path: path.join(R, "android-build/test/captura-estado.png") }); await pg.close();

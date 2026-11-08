@@ -379,7 +379,8 @@ function botonesLlamada(token, tel, txt) {
 
 // ---------- Chat ----------
 async function chat(box, clienteId, pedidoId) {
-  box.innerHTML = `<div class="msgs" id="msgs" role="log" aria-live="polite"><div class="muted small">Cargando…</div></div><form class="send" id="fs"><input id="txt" maxlength="2000" placeholder="Escribe un mensaje…" aria-label="Mensaje" autocomplete="off" required><button class="btn" aria-label="Enviar mensaje">➤</button></form>`;
+  if (window.DPChat && (await capacidades()).v6) return DPChat.abrir(box, clienteId, pedidoId);
+  box.innerHTML = `<div class="msgs" id="msgs" role="log" aria-live="polite"><div class="muted small">Cargando…</div></div><form class="send" id="fs"><input id="txt" maxlength="2000" placeholder="Escribe un mensaje…" aria-label="Mensaje" autocomplete="off" required><button class="btn" aria-label="Enviar mensaje">➤</button></form>${window.DPChat ? DPChat.avisoPendiente() : ""}`;
   let q = sb.from("mensajes").select("*, autor:profiles!mensajes_autor_id_fkey(nombre,rol)").eq("cliente_id", clienteId).order("creado").limit(300);
   q = pedidoId ? q.eq("pedido_id", pedidoId) : q.is("pedido_id", null);
   const { data } = await q; const lista = data || [];
