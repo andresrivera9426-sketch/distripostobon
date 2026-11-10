@@ -8,7 +8,7 @@ async function vPortafolio() {
   let cat = "Todas", q = "";
   app.innerHTML = `<h2>Portafolio de referencia</h2>
    <div class="note">Solo para consulta. <b>Sin precio y sin stock</b>: estas referencias no se pueden pedir hasta que el distribuidor las habilite en el catálogo.</div>
-   <p class="muted small">${d.productos.length} referencias de bebidas no alcohólicas publicadas en WeShop by Postobón (consulta ${esc(d.fecha_consulta)}). No es la lista completa de productos de Postobón. Fotos no incluidas por derechos de autor. DistriPostobon no es una app oficial de Postobón.</p>
+   <p class="muted small">${d.productos.length} referencias de bebidas no alcohólicas publicadas en WeShop by Postobón (consulta ${esc(d.fecha_consulta)}). No es la lista completa de productos de Postobón. Las fotos son envases genéricos, sin marcas ni etiquetas. DistriPostobon no es una app oficial de Postobón.</p>
    <div class="search"><input id="pq" type="search" placeholder="🔎 Buscar marca, sabor o tamaño…" aria-label="Buscar en portafolio" autocomplete="off"></div>
    <div class="cats" role="toolbar">${cats.map(c => `<button class="cat ${c === cat ? "on" : ""}" data-pc="${esc(c)}">${esc(c)}</button>`).join("")}</div>
    <div class="card list" id="pl"></div>`;
@@ -17,7 +17,7 @@ async function vPortafolio() {
   const pintar = () => {
     const w = norm(q).split(/\s+/).filter(Boolean);
     const l = d.productos.filter(p => (cat === "Todas" || p.categoria === cat) && w.every(x => norm(p.nombre + " " + p.marca + " " + p.presentacion).includes(x)));
-    $("#pl").innerHTML = l.map(p => `<div class="row"><div class="mini nof" aria-hidden="true">${esc(p.marca.slice(0, 2).toUpperCase())}</div><div class="grow"><b>${esc(p.nombre)}</b><small>${esc(p.marca)} · ${esc(p.presentacion)}${p.agotado_en_fuente ? " · no disponible en la fuente" : ""}</small></div>${vendible(p) ? `<a class="tag" href="#/">En catálogo</a>` : `<span class="tag red">Sin precio · sin stock</span>`}</div>`).join("") || `<div class="empty">Sin resultados.</div>`;
+    $("#pl").innerHTML = l.map(p => `<div class="row">${p.imagen ? `<img class="mini" src="${esc(p.imagen)}" alt="" loading="lazy" decoding="async">` : `<div class="mini nof" aria-hidden="true">${esc(p.marca.slice(0, 2).toUpperCase())}</div>`}<div class="grow"><b>${esc(p.nombre)}</b><small>${esc(p.marca)} · ${esc(p.presentacion)}${p.agotado_en_fuente ? " · no disponible en la fuente" : ""}</small></div>${vendible(p) ? `<a class="tag" href="#/">En catálogo</a>` : `<span class="tag red">Sin precio · sin stock</span>`}</div>`).join("") || `<div class="empty">Sin resultados.</div>`;
   };
   pintar();
   $("#pq").oninput = debounce(e => { q = e.target.value; pintar(); });

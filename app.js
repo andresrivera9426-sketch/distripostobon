@@ -137,7 +137,8 @@ function barra() {
   bar.classList.remove("hidden"); $("#barN").textContent = n + " producto" + (n > 1 ? "s" : ""); $("#barT").textContent = cop(totalCarrito());
 }
 function totalCarrito() { return Object.entries(S.carrito).reduce((t, [id, q]) => { const p = S.productos.find(x => x.id === id); return t + (p ? precioCant(p, q) * q : 0); }, 0); }
-function foto(p, cls = "ph") { return p.foto_url ? `<img class="${cls}" src="${esc(p.foto_url)}" alt="" loading="lazy" decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
+function fotoSrc(u) { if (!u) return ""; /* https = Storage u otra URL remota; si no, ruta local de la app (imagenes/portafolio/...). */ return u; }
+function foto(p, cls = "ph") { const src = fotoSrc(p.foto_url); return src ? `<img class="${cls}" src="${esc(src)}" alt="" loading="lazy" decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
 function tarjeta(p) {
   const c = S.carrito[p.id] || 0, ago = p.stock <= 0, fav = S.favs.has(p.id), pr = enPromo(p);
   return `<article class="prod">${pr ? `<span class="promo">-${Math.round(100 - precioDe(p) * 100 / p.precio)}%</span>` : ""}
@@ -533,7 +534,7 @@ async function mostrarVistaPreviaImport(el, parsed) {
   const filas = parsed.items.map(it => {
     const err = it.errores.length ? `<span class="tag red">Error</span> ${esc(it.errores.join("; "))}` : `<span class="tag">${it.accion === "actualizar" ? "Actualizar" : "Crear"}</span>`;
     const stock = it.accion === "actualizar" ? `${it.stockAnterior} → ${it.producto.stock}` : String(it.producto.stock);
-    const thumb = it.producto.foto_url ? `<img class="mini" src="${esc(it.producto.foto_url)}" alt="" loading="lazy">` : `<div class="mini nof" aria-hidden="true">·</div>`;
+    const thumb = fotoSrc(it.producto.foto_url) ? `<img class="mini" src="${esc(fotoSrc(it.producto.foto_url))}" alt="" loading="lazy">` : `<div class="mini nof" aria-hidden="true">·</div>`;
     return `<div class="row">${thumb}<div class="grow"><b>${esc(it.producto.nombre)}</b><small>Fila ${it.fila} · ${esc(it.producto.presentacion || "sin presentación")} · ${esc(it.producto.categoria)} · Stock ${esc(stock)} · ${cop(it.producto.precio)}</small><small>${err}</small></div></div>`;
   }).join("");
   const aviso = parsed.bloqueado
