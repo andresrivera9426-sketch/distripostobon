@@ -12,7 +12,7 @@ const V5R = ["mis_precios","registrar_abono","importar_productos","resumen_dia",
 const casos = [
   ["administrador", "#/admin/estado", "esquema de base de datos: v3", "v3"], ["administrador", "#/admin/comercial", "pendiente de activación", "v3"], ["administrador", "#/admin/cartera", "pendiente de activación", "v3"],
   ["administrador", "#/admin/cierre", "pendiente de activación", "v3"], ["administrador", "#/admin/inventario", "pendiente de activación", "v3"], ["administrador", "#/pedido/DP-PRUEB", "Chat de este pedido", "v3"],
-  ["cliente", "#/carrito", "Enviar pedido", "v3"], ["cliente", "#/perfil", "Mi perfil", "v3"], ["cliente", "#/portafolio", "Sin precio · sin stock", "v3"], ["administrador", "#/admin/estado", "Esquema de base de datos: v5", "v5"],
+  ["cliente", "#/carrito", "Enviar pedido", "v3"], ["cliente", "#/perfil", "Mi perfil", "v3"], ["cliente", "#/portafolio", "Precio a consultar", "v3"], ["cliente", "#/", "Precio a consultar", "v3"], ["administrador", "#/admin/estado", "Esquema de base de datos: v5", "v5"],
   ["administrador", "#/admin/tablero", "Pendientes por atender"], ["administrador", "#/admin/inventario", "Lotes y vencimientos"], ["administrador", "#/admin/comercial", "Zonas y días de entrega"],
   ["administrador", "#/admin/cartera", "Por cobrar"], ["administrador", "#/admin/cierre", "Cerrar día"], ["administrador", "#/pedido/DP-PRUEB", "Registrar devolución"],
   ["vendedor", "#/pedido/DP-PRUEB", "Registrar abono"], ["cliente", "#/", "PRUEBA Gaseosa"], ["cliente", "#/carrito", "Forma de pago"], ["cliente", "#/perfil", "Mi cuenta"], ["cliente", "#/pedido/DP-PRUEB", "Saldo"]];

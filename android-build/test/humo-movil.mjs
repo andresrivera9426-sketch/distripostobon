@@ -22,6 +22,7 @@ async function abrir(rol, ruta) {
 let pg = await abrir("cliente", "#/");
 ok(await pg.$eval("html", e => e.classList.contains("nativo")), "modo nativo activo");
 ok((await pg.$eval("#app", e => e.innerText)).includes("PRUEBA Gaseosa"), "catálogo renderiza desde assets locales");
+ok(await pg.$$eval("#app img[src^='imagenes/portafolio/']", l => l.length > 0 && l.filter(i => i.complete).every(i => i.naturalWidth > 0)), "Inicio muestra imágenes del portafolio empaquetadas en la app");
 await pg.screenshot({ path: path.join(R, "android-build/test/captura-catalogo.png") });
 await pg.evaluate(() => { location.hash = "#/carrito"; }); await new Promise(r => setTimeout(r, 400));
 await pg.evaluate(() => window.__back()); await new Promise(r => setTimeout(r, 400));
@@ -39,9 +40,9 @@ ok((await pg.$eval("#app", e => e.innerText)).includes("DP-PRUEB"), "detalle de 
 await pg.screenshot({ path: path.join(R, "android-build/test/captura-pedido.png") }); await pg.close();
 pg = await abrir("cliente", "#/portafolio");
 const tp = await pg.$eval("#app", e => e.innerText);
-ok(tp.includes("Portafolio de referencia") && tp.includes("Sin precio · sin stock") && !/agregar|carrito/i.test(await pg.$eval("#pl", e => e.innerHTML)), "portafolio local visible, sin precio/stock y sin botón de compra");
+ok(tp.includes("Portafolio de referencia") && tp.includes("Precio a consultar") && !/data-p=|agregar|carrito/i.test(await pg.$eval("#pl", e => e.innerHTML)), "portafolio local visible, «Precio a consultar» y sin botón de compra");
 await pg.type("#pq", "hatsu 400"); await new Promise(r => setTimeout(r, 400));
-const n = await pg.$$eval("#pl .row", r => r.length); ok(n > 0 && n < 30, "búsqueda en portafolio filtra (" + n + ")");
+const n = await pg.$$eval("#pl .prod", r => r.length); ok(n > 0 && n < 30, "búsqueda en portafolio filtra (" + n + ")");
 await pg.screenshot({ path: path.join(R, "android-build/test/captura-portafolio.png") }); await pg.close();
 pg = await abrir("administrador", "&esquema=6#/pedido/DP-PRUEB"); await new Promise(r => setTimeout(r, 500));
 ok(!!(await pg.$("#cMic")) && !!(await pg.$("#cAdj")) && (await pg.$eval("#app", e => e.innerText)).includes("Mensaje eliminado"), "chat v6 en WebView Android (código empaquetado): adjuntos y voz visibles, sin grabar al abrir");

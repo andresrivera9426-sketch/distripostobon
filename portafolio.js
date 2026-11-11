@@ -1,28 +1,79 @@
 "use strict";
-/* Portafolio de referencia: lista local (assets) de bebidas publicadas en WeShop by Postobón. Solo consulta:
-   no tiene precio ni stock, no se agrega al carrito y no crea pedidos. Los productos vendibles siguen siendo los de Supabase. */
-window.DPPortafolio = true;
+/* Portafolio local (assets): 201 referencias con imagen genérica empaquetada. Se carga ANTES de app.js y solo usa sus
+   utilidades globales al ejecutarse. Sin precio ni stock: mientras una referencia no esté activa en Supabase se muestra
+   como "Precio a consultar" (no se agrega al carrito). Cuando el administrador la activa, Inicio muestra el producto real. */
+const DPPF = { datos: null, prom: null };
+function cargarPortafolio() {
+  return DPPF.prom ||= fetch("portafolio.json").then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+    .then(d => (DPPF.datos = d)).catch(() => { DPPF.prom = null; return null; });
+}
+// Precarga temprana solo si se entra por Inicio o Portafolio (no en paneles del personal).
+if (/^(#\/?(portafolio)?)?$/.test(location.hash)) cargarPortafolio();
+
+const ORDEN_CATS = ["Gaseosas", "Aguas", "Jugos y refrescos", "Té", "Hidratantes", "Energizantes", "Maltas", "Sodas y mezcladores", "Bebidas lácteas", "Bebidas vegetales", "Sueros", "Combos"];
+const ordenCat = (a, b) => { const i = ORDEN_CATS.indexOf(a), j = ORDEN_CATS.indexOf(b); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j) || a.localeCompare(b, "es"); };
+const normNom = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+const esEjemplo = p => /^EJEMPLO\b/i.test(p?.nombre || "");
+function refsPortafolio() {
+  return (DPPF.datos?.productos || []).map((x, i) => ({ ref: true, id: "ref" + i, nombre: x.nombre, marca: x.marca, categoria: x.categoria, presentacion: x.presentacion, foto_url: x.imagen, agotado_en_fuente: !!x.agotado_en_fuente }));
+}
+// Lista única para Inicio: productos reales activos (sin EJEMPLO para el público) + referencias del portafolio que aún no estén activas.
+function itemsCatalogo() {
+  const reales = S.productos.filter(p => p.activo && (staff() || !esEjemplo(p)));
+  const ya = new Set(reales.map(p => normNom(p.nombre)));
+  return reales.concat(refsPortafolio().filter(r => !ya.has(normNom(r.nombre))));
+}
+function consultaRef(p) {
+  const txt = `Hola, quiero precio y disponibilidad de: ${p.nombre}`;
+  const w = wa(S.config.whatsapp_vendedor, txt);
+  if (w) return `<a class="btn ghost w" target="_blank" rel="noopener" href="${w}">Consultar precio</a>`;
+  if (S.user && !staff()) return `<a class="btn ghost w" href="#/chat">Consultar precio</a>`;
+  if (!S.user) return `<a class="btn ghost w" href="#/entrar/registro">Inscribirme</a>`;
+  return "";
+}
+function tarjetaRef(p, i = 99) {
+  return `<article class="prod ref">${foto(p, "ph", i)}<div class="pi"><h3>${esc(p.nombre)}</h3><small>${esc(p.marca || p.categoria)} · ${esc(p.presentacion)}</small>
+   <div class="pr"><span class="tag gris">${p.agotado_en_fuente ? "Sin disponibilidad" : "Precio a consultar"}</span></div>${consultaRef(p)}</div></article>`;
+}
+// Grilla paginada: pinta de a PAG tarjetas y carga más al acercarse al final (o con el botón).
+function grillaPaginada(el, lista, pintarUno, PAG = 24) {
+  let n = 0; el._obs?.disconnect();
+  const mas = () => {
+    const sig = lista.slice(n, n + PAG); el.querySelector(".mas")?.remove();
+    el.insertAdjacentHTML("beforeend", sig.map((p, k) => pintarUno(p, n + k)).join("")); n += sig.length;
+    if (n < lista.length) {
+      el.insertAdjacentHTML("beforeend", `<button class="btn ghost w mas">Ver más (${lista.length - n})</button>`);
+      const b = el.querySelector(".mas"); b.onclick = mas;
+      if ("IntersectionObserver" in window) { el._obs = new IntersectionObserver(e => { if (e[0].isIntersecting) { el._obs.disconnect(); mas(); } }, { rootMargin: "600px" }); el._obs.observe(b); }
+    }
+  };
+  el.innerHTML = ""; mas();
+}
+
 async function vPortafolio() {
-  let d; try { d = await (await fetch("portafolio.json")).json(); } catch (e) { app.innerHTML = `<div class="note warn">No pude abrir el portafolio local.</div>`; return; }
-  const cats = ["Todas", ...new Set(d.productos.map(p => p.categoria))];
+  const T = S.navTok;
+  if (!DPPF.datos) app.innerHTML = `<div class="grid">${"<div class='prod sk'></div>".repeat(6)}</div>`;
+  const d = await cargarPortafolio(); if (!vigente(T)) return;
+  if (!d) { app.innerHTML = `<div class="note warn">No pude abrir el portafolio. Revisa tu conexión y vuelve a intentar.</div>`; return; }
+  const activos = new Set(S.productos.filter(p => p.activo).map(p => normNom(p.nombre)));
+  const refs = refsPortafolio();
+  const cats = ["Todas", ...[...new Set(refs.map(p => p.categoria))].sort(ordenCat)];
   let cat = "Todas", q = "";
-  app.innerHTML = `<h2>Portafolio de referencia</h2>
-   <div class="note">Solo para consulta. <b>Sin precio y sin stock</b>: estas referencias no se pueden pedir hasta que el distribuidor las habilite en el catálogo.</div>
-   <p class="muted small">${d.productos.length} referencias de bebidas no alcohólicas publicadas en WeShop by Postobón (consulta ${esc(d.fecha_consulta)}). No es la lista completa de productos de Postobón. Las fotos son envases genéricos, sin marcas ni etiquetas. DistriPostobon no es una app oficial de Postobón.</p>
+  app.innerHTML = `<a href="#/" class="back">← Catálogo</a><h2>Portafolio de referencia</h2>
+   <p class="muted small">${refs.length} referencias de bebidas publicadas en WeShop by Postobón (consulta ${esc(d.fecha_consulta)}). Imágenes genéricas, sin marcas. Las que dicen <b>Precio a consultar</b> aún no se pueden pedir. DistriPostobon no es una app oficial de Postobón.</p>
    <div class="search"><input id="pq" type="search" placeholder="🔎 Buscar marca, sabor o tamaño…" aria-label="Buscar en portafolio" autocomplete="off"></div>
    <div class="cats" role="toolbar">${cats.map(c => `<button class="cat ${c === cat ? "on" : ""}" data-pc="${esc(c)}">${esc(c)}</button>`).join("")}</div>
-   <div class="card list" id="pl"></div>`;
-  const norm = s => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const vendible = p => (S.productos || []).some(x => x.activo && norm(x.nombre) === norm(p.nombre));
+   <p class="muted small" id="pn" aria-live="polite"></p><div class="grid" id="pl"></div>`;
   const pintar = () => {
-    const w = norm(q).split(/\s+/).filter(Boolean);
-    const l = d.productos.filter(p => (cat === "Todas" || p.categoria === cat) && w.every(x => norm(p.nombre + " " + p.marca + " " + p.presentacion).includes(x)));
-    $("#pl").innerHTML = l.map(p => `<div class="row">${p.imagen ? `<img class="mini" src="${esc(p.imagen)}" alt="" loading="lazy" decoding="async">` : `<div class="mini nof" aria-hidden="true">${esc(p.marca.slice(0, 2).toUpperCase())}</div>`}<div class="grow"><b>${esc(p.nombre)}</b><small>${esc(p.marca)} · ${esc(p.presentacion)}${p.agotado_en_fuente ? " · no disponible en la fuente" : ""}</small></div>${vendible(p) ? `<a class="tag" href="#/">En catálogo</a>` : `<span class="tag red">Sin precio · sin stock</span>`}</div>`).join("") || `<div class="empty">Sin resultados.</div>`;
+    const w = normNom(q).split(" ").filter(Boolean);
+    const l = refs.filter(p => (cat === "Todas" || p.categoria === cat) && w.every(x => normNom(p.nombre + " " + p.marca + " " + p.presentacion).includes(x)));
+    $("#pn").textContent = l.length + " referencia" + (l.length === 1 ? "" : "s");
+    if (!l.length) { $("#pl").innerHTML = `<div class="empty">Sin resultados.</div>`; return; }
+    grillaPaginada($("#pl"), l, (p, i) => activos.has(normNom(p.nombre))
+      ? `<article class="prod ref">${foto(p, "ph", i)}<div class="pi"><h3>${esc(p.nombre)}</h3><small>${esc(p.marca)} · ${esc(p.presentacion)}</small><div class="pr"><span class="tag">En catálogo</span></div><a class="btn ghost w" href="#/">Pedir en el catálogo</a></div></article>`
+      : tarjetaRef(p, i));
   };
   pintar();
   $("#pq").oninput = debounce(e => { q = e.target.value; pintar(); });
   app.querySelectorAll("[data-pc]").forEach(b => b.onclick = () => { cat = b.dataset.pc; app.querySelectorAll("[data-pc]").forEach(x => x.classList.toggle("on", x === b)); pintar(); });
 }
-rutas.portafolio = vPortafolio;
-// app.js pudo enrutar antes de que cargara este archivo: re-enrutar si aplica
-if (/^#\/(portafolio)?$|^$/.test(location.hash)) router();

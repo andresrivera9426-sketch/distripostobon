@@ -55,11 +55,18 @@ async function cargarPerfil() {
     if (!S.perfil) S.perfil = { id: S.user.id, rol: "cliente", nombre: "", correo: S.user.email, sala: "" };
     if (data?.rol === "cliente") { const { data: f } = await sb.from("favoritos").select("producto_id"); S.favs = new Set((f || []).map(x => x.producto_id)); }
   }
-  nav(); suscribir(); contarNoLeidos();
+  _catProm = null; nav(); suscribir(); contarNoLeidos();
 }
-async function cargarCatalogo() {
+// Una sola carga en vuelo a la vez (evita peticiones duplicadas al navegar). Tiendas y visitantes reutilizan el
+// resultado por 15 s; el personal siempre lee fresco porque edita productos.
+let _catProm = null, _catT = 0;
+function cargarCatalogo(forzar) {
+  if (_catProm && (!_catProm.listo || (!forzar && !staff() && Date.now() - _catT < 15000))) return _catProm;
+  _catT = Date.now(); const pr = _cargarCatalogo(); _catProm = pr; pr.finally(() => { pr.listo = true; }); return pr;
+}
+async function _cargarCatalogo() {
   try {
-    const [p, c, b] = await Promise.all([sb.from("productos").select("*").order("destacado", { ascending: false }).order("categoria").order("nombre"), sb.from("config").select("*").eq("id", 1).single(), sb.from("banners").select("*").order("orden")]);
+    const [p, c, b] = await Promise.all([sb.from("productos").select("*").order("destacado", { ascending: false }).order("categoria").order("nombre"), sb.from("config").select("*").eq("id", 1).single(), (staff() ? sb.from("banners").select("*") : sb.from("banners").select("*").eq("activo", true)).order("orden")]);
     if (p.error) throw p.error;
     S.productos = p.data || []; if (c.data) S.config = c.data; S.banners = b.data || []; S.offline = false;
     if (!staff()) { LS("cat_productos", S.productos); LS("cat_config", S.config); LS("cat_banners", S.banners); }
@@ -74,7 +81,7 @@ async function cargarFrecuentes() {
 }
 function nav() {
   const n = $("#nav"), t = $("#tabs");
-  if (!S.user) { n.innerHTML = `<a href="#/entrar" class="btn sm">Entrar</a>`; t.innerHTML = `<a href="#/">🛒<span>Catálogo</span></a><a href="#/entrar">👤<span>Entrar</span></a>`; marcarTab(); return; }
+  if (!S.user) { n.innerHTML = ""; t.innerHTML = `<a href="#/">🏪<span>Catálogo</span></a><a href="#/carrito">🛒<span>Carrito</span></a><a href="#/entrar">👤<span>Entrar</span></a>`; marcarTab(); return; }
   const nom = esc((S.perfil?.nombre || S.user.email).split(" ")[0]);
   n.innerHTML = `<a href="#/perfil" class="chip">${nom} · ${ROLES[rol()] || ""}</a>`;
   t.innerHTML = staff()
@@ -111,7 +118,7 @@ function suscribir() {
 function refrescarSi(pref) { if (location.hash.startsWith(pref) && !document.activeElement?.matches("input,textarea,select") && !$("#modal").innerHTML) router(); }
 
 // ---------- Router ----------
-const rutas = { "": vCatalogo, entrar: vEntrar, carrito: vCarrito, pedidos: vMisPedidos, pedido: vPedido, seguir: vSeguir, chat: vChatGeneral, perfil: vPerfil, panel: vPanel, chats: vChats, conversacion: vConversacion, admin: vAdmin, clave: vClave };
+const rutas = { "": vCatalogo, entrar: vEntrar, carrito: vCarrito, pedidos: vMisPedidos, pedido: vPedido, seguir: vSeguir, chat: vChatGeneral, perfil: vPerfil, panel: vPanel, chats: vChats, conversacion: vConversacion, admin: vAdmin, clave: vClave, portafolio: vPortafolio };
 async function router() {
   if (S.chatSub) { sb.removeChannel(S.chatSub); S.chatSub = null; }
   cerrarModal(); app.onclick = null; S.navTok = (S.navTok || 0) + 1;
@@ -138,67 +145,97 @@ function barra() {
 }
 function totalCarrito() { return Object.entries(S.carrito).reduce((t, [id, q]) => { const p = S.productos.find(x => x.id === id); return t + (p ? precioCant(p, q) * q : 0); }, 0); }
 function fotoSrc(u) { if (!u) return ""; /* https = Storage u otra URL remota; si no, ruta local de la app (imagenes/portafolio/...). */ return u; }
-function foto(p, cls = "ph") { const src = fotoSrc(p.foto_url); return src ? `<img class="${cls}" src="${esc(src)}" alt="" loading="lazy" decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
-function tarjeta(p) {
+function foto(p, cls = "ph", i = 99) { const src = fotoSrc(p.foto_url); return src ? `<img class="${cls}" src="${esc(src)}" alt="" width="400" height="400" ${i < 4 ? `fetchpriority="high"` : `loading="lazy"`} decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
+function tarjeta(p, i) {
+  if (p.ref) return tarjetaRef(p, i);
   const c = S.carrito[p.id] || 0, ago = p.stock <= 0, fav = S.favs.has(p.id), pr = enPromo(p);
-  return `<article class="prod">${pr ? `<span class="promo">-${Math.round(100 - precioDe(p) * 100 / p.precio)}%</span>` : ""}
+  return `<article class="prod" data-pid="${p.id}">${pr ? `<span class="promo">-${Math.round(100 - precioDe(p) * 100 / p.precio)}%</span>` : ""}
    ${S.user && !staff() ? `<button class="fav ${fav ? "on" : ""}" data-f="${p.id}" aria-label="${fav ? "Quitar de" : "Agregar a"} favoritos" aria-pressed="${fav}">${fav ? "♥" : "♡"}</button>` : ""}
-   ${foto(p)}<div class="pi"><h3>${esc(p.nombre)}</h3><small>${esc(p.presentacion)}</small>${p.descripcion ? `<small class="desc">${esc(p.descripcion)}</small>` : ""}
+   ${foto(p, "ph", i)}<div class="pi"><h3>${esc(p.nombre)}</h3><small>${esc(p.presentacion)}</small>${p.descripcion ? `<small class="desc">${esc(p.descripcion)}</small>` : ""}
    <div class="pr"><span>${pr ? `<s>${cop(p.precio)}</s> ` : ""}<b>${cop(precioDe(p))}</b></span>${ago ? `<span class="tag red">Agotado</span>` : p.stock < 10 ? `<span class="tag">Quedan ${p.stock}</span>` : ""}</div>
    ${ago || staff() ? "" : c ? `<div class="qty"><button data-m="${p.id}" aria-label="Quitar uno de ${esc(p.nombre)}">−</button><span aria-live="polite">${c}</span><button data-p="${p.id}" aria-label="Agregar uno de ${esc(p.nombre)}">+</button></div>` : `<button class="btn w" data-p="${p.id}">Agregar</button>`}</div></article>`;
 }
 const sinTilde = s => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+// Inicio = catálogo. Pinta enseguida con lo que haya (caché local + portafolio empaquetado) y refresca cuando llega Supabase.
 async function vCatalogo() {
-  if (!S.productos.length) app.innerHTML = `<div class="grid">${"<div class='prod sk'></div>".repeat(6)}</div>`;
-  const T = S.navTok; await cargarCatalogo(); await Promise.all([cargarFrecuentes(), cargarComercial()]); if (!vigente(T)) return;
-  const activos = S.productos.filter(p => p.activo);
-  const cats = ["Todo", ...new Set(activos.map(p => p.categoria))];
-  if (!cats.includes(S.cat)) S.cat = "Todo";
-  const ban = S.banners.filter(b => b.activo);
-  const colorOk = c => /^#[0-9a-f]{3,8}$/i.test(c || "") ? c : "#0b5cab";
-  app.innerHTML = `
+  const T = S.navTok; let firma = "";
+  const render = final => {
+    if (!vigente(T)) return;
+    const items = itemsCatalogo().sort((a, b) => (!!a.ref - !!b.ref) || (!!b.destacado - !!a.destacado) || a.nombre.localeCompare(b.nombre, "es")), reales = items.filter(p => !p.ref), hayRefs = items.length > reales.length;
+    const f = JSON.stringify([items.length, reales.map(p => [p.id, precioDe(p), p.precio, p.stock, p.foto_url, p.destacado]), !!final && !items.length, S.banners.length, S.frecuentes.length, S.favs.size, S.offline, !!S.user]);
+    if (f === firma) return; firma = f;
+    const foco = document.activeElement?.id === "q";
+    const cats = ["Todo", ...[...new Set(items.map(p => p.categoria))].sort(ordenCat)];
+    if (!cats.includes(S.cat)) S.cat = "Todo";
+    const cuenta = c => items.filter(p => p.categoria === c).length;
+    const ban = S.banners.filter(b => b.activo);
+    const colorOk = c => /^#[0-9a-f]{3,8}$/i.test(c || "") ? c : "#0b5cab";
+    app.innerHTML = `
   ${S.offline ? `<div class="note warn">📴 Sin conexión: ves el catálogo guardado. Podrás enviar el pedido cuando vuelva el internet.</div>` : ""}
-  ${S.user ? "" : `<section class="hero"><h1>Pide para tu tienda en segundos</h1><p>Catálogo, promociones, chat con tu vendedor y seguimiento de cada pedido con código.</p><a class="btn y" href="#/entrar/registro">Inscribir mi tienda</a> <a class="btn ghost" href="#/entrar">Ya tengo cuenta</a></section>`}
+  ${S.user ? "" : `<section class="hero"><div><h1>Pide para tu tienda en segundos</h1><p>Portafolio de bebidas, chat con tu vendedor y seguimiento de cada pedido.</p></div><div class="hb"><a class="btn y" href="#/entrar/registro">Inscribir mi tienda</a><a class="btn ghost" href="#/entrar">Ya tengo cuenta</a></div></section>`}
   ${staff() ? `<div class="note">Estás viendo el catálogo como ${ROLES[rol()]}. <a href="#/panel" onclick="sessionStorage.dpVerCat=''">Volver al panel</a></div>` : ""}
   ${ban.length ? `<div class="banners" aria-label="Promociones">${ban.map(b => `<div class="banner" style="--bc:${colorOk(b.color)}">${b.imagen_url ? `<img src="${esc(b.imagen_url)}" alt="" loading="lazy">` : ""}<div><b>${esc(b.titulo)}</b><p>${esc(b.texto)}</p></div></div>`).join("")}</div>` : ""}
   ${S.frecuentes.length ? `<h3 class="sec">🔁 Pide de nuevo</h3><div class="hscroll grid" id="frec"></div>` : ""}
-  <div class="search"><input id="q" type="search" placeholder="🔎 Buscar producto…" aria-label="Buscar producto" value="${esc(S.q)}" autocomplete="off">
-   <select id="orden" aria-label="Ordenar"><option value="">Orden</option><option value="pa" ${S.orden === "pa" ? "selected" : ""}>Precio ↑</option><option value="pd" ${S.orden === "pd" ? "selected" : ""}>Precio ↓</option><option value="n" ${S.orden === "n" ? "selected" : ""}>Nombre A-Z</option></select></div>
-  <div class="cats" role="toolbar" aria-label="Filtros">${S.user && !staff() ? `<button class="cat ${S.filtro === "fav" ? "on" : ""}" data-x="fav">♥ Favoritos</button>` : ""}${activos.some(enPromo) ? `<button class="cat ${S.filtro === "promo" ? "on" : ""}" data-x="promo">🔥 Promos</button>` : ""}${cats.map(c => `<button class="cat ${c === S.cat ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
-  ${window.DPPortafolio ? `<a class="btn ghost w" href="#/portafolio">📚 Ver portafolio de referencia (sin precios)</a>` : ""}
-  ${S.config.pedido_minimo > 0 ? `<p class="muted small">Pedido mínimo: <b>${cop(S.config.pedido_minimo)}</b></p>` : ""}
-  <div id="grid" class="grid"></div>`;
-  const pintar = () => {
-    const q = sinTilde(S.q);
-    let l = activos.filter(p => (S.cat === "Todo" || p.categoria === S.cat) && (S.filtro !== "fav" || S.favs.has(p.id)) && (S.filtro !== "promo" || enPromo(p)) && (!q || DPReglas.coincide(p.nombre + " " + p.presentacion + " " + p.categoria + " " + (p.descripcion || ""), q)));
-    if (S.orden === "pa") l.sort((a, b) => precioDe(a) - precioDe(b)); if (S.orden === "pd") l.sort((a, b) => precioDe(b) - precioDe(a)); if (S.orden === "n") l.sort((a, b) => a.nombre.localeCompare(b.nombre));
-    $("#grid").innerHTML = l.length ? l.map(tarjeta).join("") : `<div class="empty">${S.productos.length ? (S.filtro === "fav" ? "Aún no tienes favoritos. Toca ♡ en un producto." : "No hay productos con ese filtro.") : "Aún no hay productos. El administrador los carga desde su panel."}</div>`;
-    const fr = $("#frec"); if (fr) fr.innerHTML = S.frecuentes.map(tarjeta).join("");
+  <div class="search"><input id="q" type="search" placeholder="🔎 Buscar marca, sabor o tamaño…" aria-label="Buscar producto" value="${esc(S.q)}" autocomplete="off">
+   <select id="orden" aria-label="Ordenar" ${reales.length ? "" : "hidden"}><option value="">Ordenar</option><option value="pa" ${S.orden === "pa" ? "selected" : ""}>Precio ↑</option><option value="pd" ${S.orden === "pd" ? "selected" : ""}>Precio ↓</option><option value="n" ${S.orden === "n" ? "selected" : ""}>Nombre A-Z</option></select></div>
+  <div class="cats" role="toolbar" aria-label="Filtros">${S.user && !staff() && reales.length ? `<button class="cat ${S.filtro === "fav" ? "on" : ""}" data-x="fav">♥ Favoritos</button>` : ""}${reales.some(enPromo) ? `<button class="cat ${S.filtro === "promo" ? "on" : ""}" data-x="promo">🔥 Promos</button>` : ""}${cats.map(c => `<button class="cat ${c === S.cat ? "on" : ""}" data-c="${esc(c)}">${esc(c)}${c === "Todo" ? "" : ` <small>${cuenta(c)}</small>`}</button>`).join("")}</div>
+  ${hayRefs && !reales.length ? `<p class="muted small aviso-ref">${items.length} referencias · <b>precio y disponibilidad a consultar</b> con tu vendedor. Imágenes genéricas; no es una app oficial de Postobón.</p>` : ""}
+  ${S.config.pedido_minimo > 0 && reales.length ? `<p class="muted small">Pedido mínimo: <b>${cop(S.config.pedido_minimo)}</b></p>` : ""}
+  <p class="muted small" id="cn" aria-live="polite"></p><div id="grid"></div>
+  ${items.length ? "" : `<div class="empty">${final ? (S.offline ? "Sin conexión y sin catálogo guardado. Intenta de nuevo cuando tengas internet." : "Aún no hay productos. El administrador los carga desde su panel.") : "Cargando productos…"}</div>`}`;
+    const pintar = () => {
+      const q = sinTilde(S.q.trim());
+      let l = items.filter(p => (S.cat === "Todo" || p.categoria === S.cat) && (S.filtro !== "fav" || S.favs.has(p.id)) && (S.filtro !== "promo" || enPromo(p)) && (!q || DPReglas.coincide(p.nombre + " " + (p.marca || "") + " " + p.presentacion + " " + p.categoria + " " + (p.descripcion || ""), q)));
+      const pr = p => p.ref ? Infinity : precioDe(p);
+      if (S.orden === "pa") l.sort((a, b) => pr(a) - pr(b)); if (S.orden === "pd") l.sort((a, b) => (b.ref ? -Infinity : precioDe(b)) - (a.ref ? -Infinity : precioDe(a))); if (S.orden === "n") l.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      const g = $("#grid"); g._obs?.disconnect();
+      $("#cn").textContent = items.length && (S.cat !== "Todo" || q || S.filtro) ? `${l.length} producto${l.length === 1 ? "" : "s"}${S.cat !== "Todo" ? " en " + S.cat : ""}` : "";
+      if (!l.length) { g.className = ""; g.innerHTML = items.length ? `<div class="empty">${S.filtro === "fav" ? "Aún no tienes favoritos. Toca ♡ en un producto." : "No hay productos con ese filtro."}</div>` : ""; }
+      else if (S.cat === "Todo" && !q && !S.filtro && !S.orden) {
+        // Vista por categorías: una fila desplazable por categoría con sus primeros productos.
+        g.className = ""; let i = 0;
+        g.innerHTML = cats.slice(1).map(c => { const lc = l.filter(p => p.categoria === c); if (!lc.length) return "";
+          return `<section class="catsec"><div class="sech"><h3>${esc(c)} <small>${lc.length}</small></h3>${lc.length > 10 ? `<button class="link" data-c="${esc(c)}">Ver todo →</button>` : ""}</div>
+            <div class="hscroll grid">${lc.slice(0, 10).map(p => tarjeta(p, i++)).join("")}${lc.length > 10 ? `<button class="prod vermas" data-c="${esc(c)}">Ver los ${lc.length} de ${esc(c)} →</button>` : ""}</div></section>`; }).join("");
+      } else { g.className = "grid"; grillaPaginada(g, l, tarjeta); }
+      const fr = $("#frec"); if (fr) fr.innerHTML = S.frecuentes.map(tarjeta).join("");
+    };
+    pintar();
+    const qi = $("#q"); if (foco) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
+    qi.oninput = debounce(e => { S.q = e.target.value; pintar(); });
+    $("#orden").onchange = e => { S.orden = e.target.value; pintar(); };
+    const elegir = b => { if (b.dataset.x) S.filtro = S.filtro === b.dataset.x ? "" : b.dataset.x; else S.cat = b.dataset.c; app.querySelectorAll(".cats .cat").forEach(x => x.classList.toggle("on", x.dataset.c ? x.dataset.c === S.cat : S.filtro === x.dataset.x)); pintar(); if (b.closest("#grid")) $(".cats").scrollIntoView({ block: "start" }); };
+    app.querySelectorAll(".cats .cat").forEach(b => b.onclick = () => elegir(b));
+    app.onclick = async e => {
+      const vc = e.target.closest("#grid [data-c]"); if (vc) return elegir(vc);
+      const b = e.target.closest("button[data-p],button[data-m],button[data-f]"); if (!b || staff()) return;
+      if (b.dataset.f) {
+        const id = b.dataset.f, on = S.favs.has(id);
+        on ? S.favs.delete(id) : S.favs.add(id); pintarTarjeta(id);
+        const { error } = on ? await sb.from("favoritos").delete().eq("cliente_id", S.user.id).eq("producto_id", id) : await sb.from("favoritos").insert({ cliente_id: S.user.id, producto_id: id });
+        if (error) { on ? S.favs.add(id) : S.favs.delete(id); pintarTarjeta(id); toast(errMsg(error), 1); }
+        return;
+      }
+      const id = b.dataset.p || b.dataset.m, p = S.productos.find(x => x.id === id); if (!p) return;
+      if (b.dataset.p) { if ((S.carrito[id] || 0) >= p.stock) return toast("No hay más unidades disponibles", 1); S.carrito[id] = (S.carrito[id] || 0) + 1; }
+      else { S.carrito[id]--; if (S.carrito[id] <= 0) delete S.carrito[id]; }
+      if (navigator.vibrate) navigator.vibrate(12);
+      guardarCarrito(); pintarTarjeta(id);
+    };
+    // Actualiza solo las tarjetas de ese producto (sin repintar toda la grilla ni perder el scroll).
+    const pintarTarjeta = id => { const p = S.productos.find(x => x.id === id); if (!p) return;
+      app.querySelectorAll(`[data-pid="${id}"]`).forEach(el => { const i = el.querySelector("img[fetchpriority]") ? 0 : 99; el.outerHTML = tarjeta(p, i); }); };
   };
-  pintar();
-  $("#q").oninput = debounce(e => { S.q = e.target.value; pintar(); });
-  $("#orden").onchange = e => { S.orden = e.target.value; pintar(); };
-  app.querySelectorAll(".cat").forEach(b => b.onclick = () => { if (b.dataset.x) S.filtro = S.filtro === b.dataset.x ? "" : b.dataset.x; else S.cat = b.dataset.c; vCatalogo(); });
-  app.onclick = async e => {
-    const b = e.target.closest("button[data-p],button[data-m],button[data-f]"); if (!b || staff()) return;
-    if (b.dataset.f) {
-      const id = b.dataset.f, on = S.favs.has(id);
-      on ? S.favs.delete(id) : S.favs.add(id); pintar();
-      const { error } = on ? await sb.from("favoritos").delete().eq("cliente_id", S.user.id).eq("producto_id", id) : await sb.from("favoritos").insert({ cliente_id: S.user.id, producto_id: id });
-      if (error) { on ? S.favs.add(id) : S.favs.delete(id); pintar(); toast(errMsg(error), 1); }
-      return;
-    }
-    const id = b.dataset.p || b.dataset.m, p = S.productos.find(x => x.id === id);
-    if (b.dataset.p) { if ((S.carrito[id] || 0) >= p.stock) return toast("No hay más unidades disponibles", 1); S.carrito[id] = (S.carrito[id] || 0) + 1; }
-    else { S.carrito[id]--; if (S.carrito[id] <= 0) delete S.carrito[id]; }
-    if (navigator.vibrate) navigator.vibrate(12);
-    guardarCarrito(); pintar();
-  };
+  if (!DPPF.datos) { if (!S.productos.length) app.innerHTML = `<div class="grid">${"<div class='prod sk'></div>".repeat(6)}</div>`; await Promise.race([cargarPortafolio(), new Promise(r => setTimeout(r, 1500))]); }
+  if (DPPF.datos || S.productos.length) render();
+  await cargarCatalogo(); if (!vigente(T)) return;
+  await Promise.all([cargarFrecuentes(), cargarComercial(), cargarPortafolio()]);
+  render(true);
 }
 
 async function vCarrito() {
   const T = S.navTok; await cargarCatalogo(); await cargarComercial(); if (!vigente(T)) return;
-  for (const id in S.carrito) if (!S.productos.find(p => p.id === id && p.activo)) delete S.carrito[id];
+  for (const id in S.carrito) if (!S.productos.find(p => p.id === id && p.activo && (staff() || !esEjemplo(p)))) delete S.carrito[id];
   guardarCarrito();
   const items = Object.entries(S.carrito).map(([id, q]) => ({ p: S.productos.find(x => x.id === id), q }));
   const tot = totalCarrito(), min = Number(S.config.pedido_minimo) || 0;

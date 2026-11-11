@@ -31,3 +31,8 @@ App web (PWA) para que las tiendas hagan pedidos de bebidas, chateen con su vend
 - Lotes: se activan por producto declarando lotes que suman el stock actual; FEFO; no se vende vencido; recepción y baja por lote.
 - Admin › Cierre: resumen del día (hora Colombia), efectivo declarado vs. abonos en efectivo, un cierre vigente por día, anulación con motivo. Registro operativo, no contable.
 - Pruebas: `tests/v5.test.mjs` (PGlite) y `tests/humo.navegador.mjs` (Chrome headless con Supabase falso `tests/supabase_mock.js`).
+
+## Inicio optimizado (rama `optimizacion-ui`, sin publicar)
+- Inicio muestra el portafolio (201 referencias con imagen local) organizado por categorías, con búsqueda, filtros y páginas de 24. Las referencias no activas salen como «Precio a consultar»; al activarlas en Supabase pasan a ser pedibles sin cambiar la app. Los productos EJEMPLO no se muestran al público.
+- Una sola carga del catálogo por pantalla (antes se pedía dos veces), banners solo activos para el público, imágenes con carga diferida y caché primero en el service worker (`dp-v9`).
+- Prueba: `NODE_PATH=<node_modules con puppeteer-core> node tests/humo.inicio.mjs` (Supabase falso).
