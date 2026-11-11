@@ -1,5 +1,5 @@
 "use strict";
-/* Portafolio local (assets): 201 referencias con imagen genérica empaquetada. Se carga ANTES de app.js y solo usa sus
+/* Portafolio local (assets): 201 referencias con su foto oficial (WeShop by Postobón) empaquetada. Se carga ANTES de app.js y solo usa sus
    utilidades globales al ejecutarse. Sin precio ni stock: mientras una referencia no esté activa en Supabase se muestra
    como "Precio a consultar" (no se agrega al carrito). Cuando el administrador la activa, Inicio muestra el producto real. */
 const DPPF = { datos: null, prom: null };
@@ -14,6 +14,14 @@ const ORDEN_CATS = ["Gaseosas", "Aguas", "Jugos y refrescos", "Té", "Hidratante
 const ordenCat = (a, b) => { const i = ORDEN_CATS.indexOf(a), j = ORDEN_CATS.indexOf(b); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j) || a.localeCompare(b, "es"); };
 const normNom = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 const esEjemplo = p => /^EJEMPLO\b/i.test(p?.nombre || "");
+// Foto oficial empaquetada para un producto de Supabase que corresponde a una referencia del portafolio (mismo nombre).
+// Solo reemplaza rutas locales (imagenes/portafolio/...) o vacías; una foto subida por el administrador (https) se respeta.
+let _fotoNom = null;
+function fotoPortafolio(p) {
+  if (!DPPF.datos || (p.foto_url && !/^imagenes\/portafolio\//.test(p.foto_url))) return "";
+  _fotoNom ||= new Map(DPPF.datos.productos.map(x => [normNom(x.nombre), x.imagen]));
+  return _fotoNom.get(normNom(p.nombre)) || "";
+}
 function refsPortafolio() {
   return (DPPF.datos?.productos || []).map((x, i) => ({ ref: true, id: "ref" + i, nombre: x.nombre, marca: x.marca, categoria: x.categoria, presentacion: x.presentacion, foto_url: x.imagen, agotado_en_fuente: !!x.agotado_en_fuente }));
 }
@@ -60,7 +68,7 @@ async function vPortafolio() {
   const cats = ["Todas", ...[...new Set(refs.map(p => p.categoria))].sort(ordenCat)];
   let cat = "Todas", q = "";
   app.innerHTML = `<a href="#/" class="back">← Catálogo</a><h2>Portafolio de referencia</h2>
-   <p class="muted small">${refs.length} referencias de bebidas publicadas en WeShop by Postobón (consulta ${esc(d.fecha_consulta)}). Imágenes genéricas, sin marcas. Las que dicen <b>Precio a consultar</b> aún no se pueden pedir. DistriPostobon no es una app oficial de Postobón.</p>
+   <p class="muted small">${refs.length} referencias de bebidas publicadas en WeShop by Postobón (consulta ${esc(d.fecha_consulta)}). Fotos oficiales de WeShop by Postobón. Las que dicen <b>Precio a consultar</b> aún no se pueden pedir. DistriPostobon no es una app oficial de Postobón.</p>
    <div class="search"><input id="pq" type="search" placeholder="🔎 Buscar marca, sabor o tamaño…" aria-label="Buscar en portafolio" autocomplete="off"></div>
    <div class="cats" role="toolbar">${cats.map(c => `<button class="cat ${c === cat ? "on" : ""}" data-pc="${esc(c)}">${esc(c)}</button>`).join("")}</div>
    <p class="muted small" id="pn" aria-live="polite"></p><div class="grid" id="pl"></div>`;

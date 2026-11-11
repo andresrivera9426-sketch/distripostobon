@@ -12,13 +12,15 @@ const REF = JSON.parse(fs.readFileSync(path.join(raiz, "portafolio.json"), "utf8
 function mock(v) {
   let m = fs.readFileSync(path.join(raiz, "tests/supabase_mock.js"), "utf8");
   const extra = [`{ ...P1, id: "pe", nombre: "EJEMPLO · Agua 600 ml", categoria: "Aguas" }`];
-  if (v.activado) extra.push(`{ ...P1, id: "pa", nombre: ${JSON.stringify(REF[0].nombre)}, categoria: ${JSON.stringify(REF[0].categoria)}, presentacion: ${JSON.stringify(REF[0].presentacion)}, foto_url: ${JSON.stringify(REF[0].imagen)}, precio: 16800, stock: 10 }`);
+  if (v.activado) extra.push(`{ ...P1, id: "pa", nombre: ${JSON.stringify(REF[0].nombre)}, categoria: ${JSON.stringify(REF[0].categoria)}, presentacion: ${JSON.stringify(REF[0].presentacion)}, foto_url: "imagenes/portafolio/agua-sin-gas-pet.webp", precio: 16800, stock: 10 }`);
   m = m.replace("productos: [P1, P2]", `productos: [P1, P2, ${extra.join(", ")}]`);
   if (v.anon) m = m.replace("getSession: async () => ({ data: { session: sess } })", "getSession: async () => ({ data: { session: null } })");
   return m;
 }
+const faltan = REF.filter(p => !fs.existsSync(path.join(raiz, p.imagen)) || fs.statSync(p.imagen ? path.join(raiz, p.imagen) : raiz).size > 25 * 1024);
+console.log(faltan.length ? "✗" : "✓", `las ${REF.length} imágenes del portafolio existen en el paquete y pesan < 25 KB` + (faltan.length ? ": " + faltan.map(p => p.imagen).join(",") : ""));
 const br = await puppeteer.launch({ executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox", "--disable-dev-shm-usage"], headless: true });
-const esp = ms => new Promise(r => setTimeout(r, ms)); let n = 0, fallos = 0;
+const esp = ms => new Promise(r => setTimeout(r, ms)); let n = 1, fallos = faltan.length ? 1 : 0;
 const ok = (c, m) => { n++; if (!c) fallos++; console.log(c ? "✓" : "✗", m); };
 async function abrir(v, vp = { width: 390, height: 844, isMobile: true, hasTouch: true }, ruta = "#/") {
   const ctx = await br.createBrowserContext(); const pg = await ctx.newPage(); pg.errs = []; await pg.setViewport(vp);
@@ -45,6 +47,7 @@ ok(await pg.evaluate(() => __tablas.filter(x => x === "productos").length === 1)
 const sinLazy = await pg.$$eval("#app img", l => l.filter((i, k) => k >= 4 && i.loading !== "lazy").length); ok(sinLazy === 0, "imágenes fuera de la primera fila con carga diferida");
 const rutas = await pg.$$eval("#app img", l => [...new Set(l.map(i => new URL(i.src).pathname))]);
 const malas = []; for (const p of rutas) { const r = await pg.evaluate(async u => (await fetch(u)).status, p); if (r !== 200) malas.push(p); }
+ok(REF.every(p => p.imagen.startsWith("imagenes/portafolio/oficial/")) && rutas.filter(p => p.includes("/imagenes/portafolio/")).every(p => p.includes("/oficial/")), "portafolio usa fotos oficiales (" + REF.length + " referencias)");
 ok(rutas.length > 5 && !malas.length, `todas las imágenes del Inicio existen en el paquete (${rutas.length} distintas)` + (malas.length ? " faltan: " + malas.join(",") : ""));
 // categoría -> grilla paginada
 await pg.evaluate(() => [...document.querySelectorAll(".cats .cat")].find(b => b.dataset.c === "Gaseosas").click()); await esp(200);
@@ -72,6 +75,8 @@ await pg.type("#q", "Agua Cristal Pet 300"); await esp(400);
 const tarjetas = await pg.$$eval("#grid .prod", l => l.map(e => [e.querySelector("h3").innerText, !!e.querySelector("button[data-p]"), e.innerText.includes("Precio a consultar")]));
 const mismo = tarjetas.filter(x => x[0] === REF[0].nombre);
 ok(mismo.length === 1 && mismo[0][1] && !mismo[0][2], "referencia activada: una sola tarjeta, con precio y botón Agregar");
+const srcAct = await pg.$eval('[data-pid="pa"] img', i => new URL(i.src).pathname);
+ok(srcAct.endsWith(REF[0].imagen), "producto activo con ruta genérica en Supabase muestra la foto oficial empaquetada (" + srcAct + ")");
 ok(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "sin desborde horizontal a 1366 px");
 ok(!pg.errs.length, "activado: sin errores JS " + pg.errs.join(" | ")); await ctx.close();
 

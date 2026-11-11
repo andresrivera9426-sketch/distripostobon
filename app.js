@@ -145,7 +145,7 @@ function barra() {
 }
 function totalCarrito() { return Object.entries(S.carrito).reduce((t, [id, q]) => { const p = S.productos.find(x => x.id === id); return t + (p ? precioCant(p, q) * q : 0); }, 0); }
 function fotoSrc(u) { if (!u) return ""; /* https = Storage u otra URL remota; si no, ruta local de la app (imagenes/portafolio/...). */ return u; }
-function foto(p, cls = "ph", i = 99) { const src = fotoSrc(p.foto_url); return src ? `<img class="${cls}" src="${esc(src)}" alt="" width="400" height="400" ${i < 4 ? `fetchpriority="high"` : `loading="lazy"`} decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
+function foto(p, cls = "ph", i = 99) { const src = p.ref ? fotoSrc(p.foto_url) : (fotoPortafolio(p) || fotoSrc(p.foto_url)); return src ? `<img class="${cls}" src="${esc(src)}" alt="" width="400" height="400" ${i < 4 ? `fetchpriority="high"` : `loading="lazy"`} decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
 function tarjeta(p, i) {
   if (p.ref) return tarjetaRef(p, i);
   const c = S.carrito[p.id] || 0, ago = p.stock <= 0, fav = S.favs.has(p.id), pr = enPromo(p);
@@ -179,7 +179,7 @@ async function vCatalogo() {
   <div class="search"><input id="q" type="search" placeholder="🔎 Buscar marca, sabor o tamaño…" aria-label="Buscar producto" value="${esc(S.q)}" autocomplete="off">
    <select id="orden" aria-label="Ordenar" ${reales.length ? "" : "hidden"}><option value="">Ordenar</option><option value="pa" ${S.orden === "pa" ? "selected" : ""}>Precio ↑</option><option value="pd" ${S.orden === "pd" ? "selected" : ""}>Precio ↓</option><option value="n" ${S.orden === "n" ? "selected" : ""}>Nombre A-Z</option></select></div>
   <div class="cats" role="toolbar" aria-label="Filtros">${S.user && !staff() && reales.length ? `<button class="cat ${S.filtro === "fav" ? "on" : ""}" data-x="fav">♥ Favoritos</button>` : ""}${reales.some(enPromo) ? `<button class="cat ${S.filtro === "promo" ? "on" : ""}" data-x="promo">🔥 Promos</button>` : ""}${cats.map(c => `<button class="cat ${c === S.cat ? "on" : ""}" data-c="${esc(c)}">${esc(c)}${c === "Todo" ? "" : ` <small>${cuenta(c)}</small>`}</button>`).join("")}</div>
-  ${hayRefs && !reales.length ? `<p class="muted small aviso-ref">${items.length} referencias · <b>precio y disponibilidad a consultar</b> con tu vendedor. Imágenes genéricas; no es una app oficial de Postobón.</p>` : ""}
+  ${hayRefs && !reales.length ? `<p class="muted small aviso-ref">${items.length} referencias · <b>precio y disponibilidad a consultar</b> con tu vendedor. Fotos: WeShop by Postobón.</p>` : ""}
   ${S.config.pedido_minimo > 0 && reales.length ? `<p class="muted small">Pedido mínimo: <b>${cop(S.config.pedido_minimo)}</b></p>` : ""}
   <p class="muted small" id="cn" aria-live="polite"></p><div id="grid"></div>
   ${items.length ? "" : `<div class="empty">${final ? (S.offline ? "Sin conexión y sin catálogo guardado. Intenta de nuevo cuando tengas internet." : "Aún no hay productos. El administrador los carga desde su panel.") : "Cargando productos…"}</div>`}`;
@@ -234,7 +234,7 @@ async function vCatalogo() {
 }
 
 async function vCarrito() {
-  const T = S.navTok; await cargarCatalogo(); await cargarComercial(); if (!vigente(T)) return;
+  const T = S.navTok; await Promise.all([cargarCatalogo(), cargarPortafolio()]); await cargarComercial(); if (!vigente(T)) return;
   for (const id in S.carrito) if (!S.productos.find(p => p.id === id && p.activo && (staff() || !esEjemplo(p)))) delete S.carrito[id];
   guardarCarrito();
   const items = Object.entries(S.carrito).map(([id, q]) => ({ p: S.productos.find(x => x.id === id), q }));
