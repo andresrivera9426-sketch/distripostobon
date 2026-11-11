@@ -40,14 +40,18 @@ const secs = await pg.$$eval(".catsec .sech h3", h => h.map(x => x.innerText.spl
 ok(secs[0] === "Gaseosas" && secs.includes("Aguas") && secs.length >= 10, "Inicio organizado por categorías (" + secs.length + "): " + secs.slice(0, 4).join(", "));
 ok(await pg.$eval("#nav", e => e.innerText.trim() === ""), "sin botón «Entrar» duplicado en el encabezado del móvil");
 ok((await pg.$$eval("#tabs a", a => a.map(x => x.innerText.replace(/\s+/g, " ").trim()))).join("|").includes("Carrito"), "pestañas del visitante incluyen Carrito");
-const vis = await pg.$$eval("#app .prod", l => l.filter(e => { const r = e.getBoundingClientRect(); return r.top < innerHeight - 70 && r.bottom > 0 && r.left < innerWidth; }).length);
-ok(vis >= 2, "productos visibles en la primera pantalla del móvil (" + vis + ")");
+// Portada nueva: en la primera pantalla del móvil se ven buscador, inscripción, fotos de producto (collage + categorías) y las categorías.
+const vis = await pg.$$eval("#app img", l => l.filter(e => { const r = e.getBoundingClientRect(); return r.top < innerHeight - 70 && r.bottom > 0 && r.left < innerWidth && r.right > 0; }).length);
+ok(vis >= 6, "fotos de producto en la primera pantalla del móvil (" + vis + ")");
+ok(await pg.evaluate(() => { const v = s => { const e = document.querySelector(s); if (!e) return false; const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom < innerHeight - 60; }; return v(".hero2 #q") && v('.hero2 a[href="#/entrar/registro"]') && v(".trust") && v(".cats.tiles .cat"); }), "portada: buscador, «Inscribir mi tienda», confianza y categorías en la primera pantalla");
+const prim = await pg.$eval("#app .prod", e => e.getBoundingClientRect().top); ok(prim < 1.6 * 844, "primer producto a menos de un desplazamiento (" + Math.round(prim) + " px)");
 ok(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "sin desborde horizontal a 390 px");
 ok(await pg.evaluate(() => __tablas.filter(x => x === "productos").length === 1), "una sola consulta a productos al abrir Inicio (" + await pg.evaluate(() => __tablas.filter(x => x === "productos").length) + ")");
-const sinLazy = await pg.$$eval("#app img", l => l.filter((i, k) => k >= 4 && !i.dataset.src).length); ok(sinLazy === 0, "imágenes fuera de las 4 primeras con carga diferida (data-src)");
+const sinLazy = await pg.$$eval("#app img", l => l.filter(i => !i.closest(".collage") && !i.dataset.src).length); ok(sinLazy === 0, "imágenes fuera del collage de portada con carga diferida (data-src)");
+ok(await pg.$$eval(".collage img", l => l.length === 5 && l.every(i => i.complete && i.naturalWidth > 0)), "collage de portada: 5 fotos oficiales cargadas");
 const cargadas = await pg.$$eval("#app img", l => l.filter(i => i.getAttribute("src")).length), total = await pg.$$eval("#app img", l => l.length);
 ok(cargadas < total / 2, `primera pantalla: solo se piden las fotos cercanas (${cargadas} de ${total})`);
-await pg.evaluate(async () => { for (let y = 0; y < document.body.scrollHeight; y += 400) { scrollTo(0, y); await new Promise(r => setTimeout(r, 60)); } for (const h of document.querySelectorAll(".hscroll")) { h.scrollIntoView(); for (let x = 0; x <= h.scrollWidth; x += 150) { h.scrollLeft = x; await new Promise(r => setTimeout(r, 40)); } } await new Promise(r => setTimeout(r, 400)); scrollTo(0, 0); await new Promise(r => setTimeout(r, 100)); });
+await pg.evaluate(async () => { for (let y = 0; y < document.body.scrollHeight; y += 400) { scrollTo(0, y); await new Promise(r => setTimeout(r, 60)); } for (const h of document.querySelectorAll(".hscroll,.cats.tiles")) { h.scrollIntoView(); for (let x = 0; x <= h.scrollWidth; x += 150) { h.scrollLeft = x; await new Promise(r => setTimeout(r, 40)); } } await new Promise(r => setTimeout(r, 400)); scrollTo(0, 0); await new Promise(r => setTimeout(r, 100)); });
 ok(await pg.$$eval("#app img", l => l.every(i => i.getAttribute("src"))), "al desplazarse (vertical y filas horizontales) se cargan todas las fotos");
 const rutas = await pg.$$eval("#app img", l => [...new Set(l.map(i => new URL(i.getAttribute("src") || i.dataset.src, location.href).pathname))]);
 const malas = []; for (const p of rutas) { const r = await pg.evaluate(async u => (await fetch(u)).status, p); if (r !== 200) malas.push(p); }

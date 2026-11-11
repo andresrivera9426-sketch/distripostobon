@@ -20,6 +20,9 @@ const vigente = t => t === S.navTok;
 const debounce = (f, ms = 180) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); }; };
 const XLSX_URL = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
 async function cargarXLSX() { if (window.XLSX) return true; try { await new Promise((ok, ko) => { const s = document.createElement("script"); s.src = XLSX_URL; s.onload = ok; s.onerror = ko; document.head.appendChild(s); }); } catch (e) { } if (!window.XLSX) toast("No pude cargar Excel. Revisa tu conexión.", 1); return !!window.XLSX; }
+// Carga un script de la app solo cuando se necesita (una sola vez). Así la primera visita no descarga ni ejecuta lo que no usa.
+const _scripts = {};
+function cargarScript(src) { return _scripts[src] ||= new Promise((ok, ko) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => { delete _scripts[src]; ko(new Error("No pude cargar " + src + ". Revisa tu conexión.")); }; document.head.appendChild(s); }); }
 function toast(m, err) { const t = $("#toast"); t.textContent = m; t.className = "toast on" + (err ? " err" : ""); clearTimeout(t._t); t._t = setTimeout(() => t.className = "toast", 3800); }
 function errMsg(e) { const m = e?.message || String(e); if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "Sin conexión. Revisa tu internet e intenta de nuevo."; return m.replace(/^.*?ERROR:\s*/, "").replace("Invalid login credentials", "Correo o contraseña incorrectos").replace("Email not confirmed", "Debes confirmar tu correo: revisa tu bandeja de entrada").replace("User already registered", "Ese correo ya está registrado"); }
 function guardarCarrito() { LS("carrito", S.carrito); barra(); }
@@ -73,23 +76,32 @@ async function _cargarCatalogo() {
   } catch (e) { S.offline = true; }
 }
 async function cargarFrecuentes() {
-  S.frecuentes = [];
+  S.frecuentes = []; S.ultimo = null; S.activo = null;
   if (!S.user || staff() || S.offline) return;
-  const { data } = await sb.from("pedidos").select("pedido_items(producto_id,cantidad)").eq("cliente_id", S.user.id).neq("estado", "Cancelado").order("creado", { ascending: false }).limit(20);
+  const { data } = await sb.from("pedidos").select("codigo,estado,pedido_items(producto_id,cantidad)").eq("cliente_id", S.user.id).neq("estado", "Cancelado").order("creado", { ascending: false }).limit(20);
+  S.ultimo = (data || [])[0] || null; S.activo = (data || []).find(o => o.estado !== "Entregado") || null;
   const cnt = {}; (data || []).forEach(o => o.pedido_items.forEach(i => { if (i.producto_id) cnt[i.producto_id] = (cnt[i.producto_id] || 0) + i.cantidad; }));
   S.frecuentes = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([id]) => S.productos.find(p => p.id === id && p.activo && p.stock > 0)).filter(Boolean).slice(0, 10);
 }
+// Pestañas por rol (máximo 5). Lo avanzado del administrador queda en «Más», con mosaicos grandes.
+const TAB = (href, ic, txt, x = "") => `<a href="${href}"${x}><i aria-hidden="true">${ic}</i><span>${txt}</span></a>`;
+function tabsDe(r) {
+  const cart = TAB("#/carrito", "🛒", "Carrito", ` class="cartTab"`), cat = TAB("#/catalogo", "🛍️", "Catálogo");
+  if (!r) return TAB("#/", "🏠", "Inicio") + cart + TAB("#/entrar", "👤", "Entrar");
+  if (r === "cliente") return TAB("#/", "🏠", "Inicio") + cart + TAB("#/pedidos", "📦", "Pedidos") + TAB("#/chat", "💬", "Chat", ` class="chatTab"`) + TAB("#/perfil", "👤", "Cuenta");
+  const ped = TAB("#/panel", "📋", "Pedidos"), chats = TAB("#/chats", "💬", "Chats", ` class="chatTab"`), cta = TAB("#/perfil", "👤", "Cuenta");
+  if (r === "bodega") return ped + cat + cta;
+  if (r === "administrador") return ped + chats + TAB("#/admin", "📊", "Resumen", ` data-rx="^#/admin(/tablero)?$"`) + TAB("#/mas", "▦", "Más", ` data-rx="^#/(mas|admin/(?!tablero)|catalogo)"`) + cta;
+  return ped + chats + cat + cta; // vendedor
+}
 function nav() {
   const n = $("#nav"), t = $("#tabs");
-  if (!S.user) { n.innerHTML = ""; t.innerHTML = `<a href="#/">🏪<span>Catálogo</span></a><a href="#/carrito">🛒<span>Carrito</span></a><a href="#/entrar">👤<span>Entrar</span></a>`; marcarTab(); return; }
+  if (!S.user) { n.innerHTML = ""; t.innerHTML = tabsDe(null); marcarTab(); barra(); return; }
   const nom = esc((S.perfil?.nombre || S.user.email).split(" ")[0]);
-  n.innerHTML = `<a href="#/perfil" class="chip">${nom} · ${ROLES[rol()] || ""}</a>`;
-  t.innerHTML = staff()
-    ? `<a href="#/panel">📋<span>Pedidos</span></a>${rol() !== "bodega" ? `<a href="#/chats" class="chatTab">💬<span>Chats</span></a>` : ""}${rol() === "administrador" ? `<a href="#/admin">📊<span>Admin</span></a>` : ""}<a href="#/perfil">👤<span>Perfil</span></a>`
-    : `<a href="#/">🛒<span>Catálogo</span></a><a href="#/pedidos">📦<span>Pedidos</span></a><a href="#/chat" class="chatTab">💬<span>Chat</span></a><a href="#/perfil">👤<span>Perfil</span></a>`;
-  marcarTab();
+  n.innerHTML = `<span class="chip">${nom} · ${ROLES[rol()] || ""}</span>`;
+  t.innerHTML = tabsDe(rol()); marcarTab(); barra();
 }
-function marcarTab() { const h = location.hash || "#/"; document.querySelectorAll("#tabs a").forEach(a => { const r = a.getAttribute("href"); const on = r === "#/" ? (h === "#/" || h === "#") : h.startsWith(r); a.classList.toggle("on", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); }); }
+function marcarTab() { const h = location.hash || "#/"; document.querySelectorAll("#tabs a").forEach(a => { const r = a.getAttribute("href"); const on = a.dataset.rx ? new RegExp(a.dataset.rx).test(h) : r === "#/" ? (h === "#/" || h === "#") : h.startsWith(r); a.classList.toggle("on", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); }); }
 
 // ---------- Mensajes no leídos ----------
 const visto = k => LS("visto_" + k) || "1970-01-01T00:00:00Z";
@@ -118,18 +130,19 @@ function suscribir() {
 function refrescarSi(pref) { if (location.hash.startsWith(pref) && !document.activeElement?.matches("input,textarea,select") && !$("#modal").innerHTML) router(); }
 
 // ---------- Router ----------
-const rutas = { "": vCatalogo, entrar: vEntrar, carrito: vCarrito, pedidos: vMisPedidos, pedido: vPedido, seguir: vSeguir, chat: vChatGeneral, perfil: vPerfil, panel: vPanel, chats: vChats, conversacion: vConversacion, admin: vAdmin, clave: vClave, portafolio: vPortafolio };
+const rutas = { "": vCatalogo, entrar: vEntrar, carrito: vCarrito, pedidos: vMisPedidos, pedido: vPedido, seguir: vSeguir, chat: vChatGeneral, perfil: vPerfil, panel: vPanel, chats: vChats, conversacion: vConversacion, admin: vAdmin, clave: vClave, portafolio: vPortafolio, catalogo: vCatalogo, mas: vMas };
 async function router() {
   if (S.chatSub) { sb.removeChannel(S.chatSub); S.chatSub = null; }
   cerrarModal(); app.onclick = null; S.navTok = (S.navTok || 0) + 1;
   let [r, ...a] = location.hash.replace(/^#\/?/, "").split("/");
   if (!(r in rutas)) r = "";
   if (S.recovery && r !== "clave") { location.hash = "#/clave"; return; }
-  const priv = !["", "entrar", "carrito", "portafolio"].includes(r);
+  const priv = !["", "entrar", "carrito", "portafolio", "catalogo"].includes(r);
   if (priv && !S.user) { location.hash = "#/entrar"; return; }
-  if (["panel", "chats", "conversacion", "admin"].includes(r) && !staff()) { location.hash = "#/"; return; }
-  if (r === "admin" && rol() !== "administrador") { location.hash = "#/panel"; return; }
-  if (r === "" && staff() && sessionStorage.dpVerCat !== "1") { location.hash = "#/panel"; return; }
+  if (["panel", "chats", "conversacion", "admin", "mas"].includes(r) && !staff()) { location.hash = "#/"; return; }
+  if ((r === "admin" || r === "mas") && rol() !== "administrador") { location.hash = "#/panel"; return; }
+  if (r === "" && staff()) { location.hash = sessionStorage.dpVerCat === "1" ? "#/catalogo" : "#/panel"; return; }
+  if (r === "catalogo" && !staff()) { location.hash = "#/"; return; }
   marcarTab(); barra();
   try { await rutas[r](...a.map(decodeURIComponent)); } catch (e) { console.error(e); app.innerHTML = `<div class="card"><h2>Algo falló</h2><p>${esc(errMsg(e))}</p><button class="btn" onclick="router()">Reintentar</button></div>`; }
   window.scrollTo(0, 0);
@@ -139,8 +152,9 @@ window.addEventListener("hashchange", router);
 // ---------- Catálogo ----------
 function barra() {
   const n = Object.values(S.carrito).reduce((a, b) => a + b, 0), bar = $("#bar");
-  const h = location.hash.replace(/^#\/?/, "");
-  if (!n || staff() || h !== "") { bar.classList.add("hidden"); return; }
+  const h = location.hash.replace(/^#\/?/, "").split("/")[0];
+  document.querySelectorAll(".cartTab").forEach(a => { a.querySelector(".badge")?.remove(); if (n) a.insertAdjacentHTML("beforeend", `<b class="badge" aria-label="${n} en el carrito">${n > 99 ? "99+" : n}</b>`); });
+  if (!n || staff() || !["", "portafolio"].includes(h)) { bar.classList.add("hidden"); return; }
   bar.classList.remove("hidden"); $("#barN").textContent = n + " producto" + (n > 1 ? "s" : ""); $("#barT").textContent = cop(totalCarrito());
 }
 function totalCarrito() { return Object.entries(S.carrito).reduce((t, [id, q]) => { const p = S.productos.find(x => x.id === id); return t + (p ? precioCant(p, q) * q : 0); }, 0); }
@@ -156,6 +170,42 @@ function tarjeta(p, i) {
    ${ago || staff() ? "" : c ? `<div class="qty"><button data-m="${p.id}" aria-label="Quitar uno de ${esc(p.nombre)}">−</button><span aria-live="polite">${c}</span><button data-p="${p.id}" aria-label="Agregar uno de ${esc(p.nombre)}">+</button></div>` : `<button class="btn w" data-p="${p.id}">Agregar</button>`}</div></article>`;
 }
 const sinTilde = s => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+// ---------- Entrada ----------
+// Fotos oficiales empaquetadas para el collage de la portada (la primera va precargada en index.html).
+const HERO_FOTOS = ["pepsi-pet-2-5-lt-x-1-und", "agua-cristal-1-l-botella-pet-x-1-und", "refresco-de-fruta-hit-naranja-pet-1-l-x-1-und", "te-hatsu-azul-sin-calorias-en-vidrio-400-ml", "natu-malta-pet-1-litro"];
+const fotoHero = (f, i) => `<img src="imagenes/portafolio/oficial/${f}.webp" alt="" width="400" height="400" decoding="async"${i < 2 ? ` fetchpriority="high"` : ""}>`;
+function buscador(reales, enHero) {
+  return `<div class="search${enHero ? " enhero" : ""}"><input id="q" type="search" placeholder="🔎 Busca marca, sabor o tamaño" aria-label="Buscar producto" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search">
+   ${reales.length ? `<select id="orden" aria-label="Ordenar"><option value="">Ordenar</option><option value="pa" ${S.orden === "pa" ? "selected" : ""}>Precio ↑</option><option value="pd" ${S.orden === "pd" ? "selected" : ""}>Precio ↓</option><option value="n" ${S.orden === "n" ? "selected" : ""}>Nombre A-Z</option></select>` : ""}</div>`;
+}
+function heroEntrada() {
+  return `<section class="hero2"><div class="hx"><span class="pill"><i></i>Distribución de bebidas para tiendas</span>
+   <h1>Surte tu tienda <span>sin salir de ella</span></h1>
+   <p>Gaseosas, aguas, jugos, tés y más. Haz tu pedido desde el celular y síguelo hasta tu puerta.</p>
+   <div class="collage" aria-hidden="true">${HERO_FOTOS.map((f, i) => `<span>${fotoHero(f, i)}</span>`).join("")}</div>
+   ${buscador(S.productos.filter(p => p.activo && !esEjemplo(p)), 1)}
+   <div class="hb"><a class="btn y big" href="#/entrar/registro">Inscribir mi tienda</a><a class="btn ghost" href="#/entrar">Ya tengo cuenta</a></div></div></section>
+  <ul class="trust"><li><i aria-hidden="true">🚚</i><span><b>Entrega en tu tienda</b><small>Eliges fecha y franja</small></span></li><li><i aria-hidden="true">💬</i><span><b>Chat y WhatsApp</b><small>Habla con tu vendedor</small></span></li><li><i aria-hidden="true">📦</i><span><b>Seguimiento</b><small>Ves cada paso del pedido</small></span></li></ul>`;
+}
+function holaTienda() {
+  const nom = esc((S.perfil?.nombre || "").split(" ")[0] || "");
+  const u = S.ultimo, a = S.activo;
+  return `<section class="hola"><div><small>Hola${nom ? "," : ""}</small><h1>${nom || "¡Bienvenido!"}</h1></div>
+   ${a || u ? `<div class="acc">${a ? `<a class="accb" href="#/pedido/${esc(a.codigo)}"><i aria-hidden="true">${ICON[a.estado] || "📦"}</i><span><b>Tu pedido ${esc(a.codigo)}</b><small>${esc(a.estado)} · ver seguimiento</small></span></a>` : ""}${u ? `<button class="accb" id="repUltH"><i aria-hidden="true">🔁</i><span><b>Repetir último pedido</b><small>${esc(u.codigo)} · ${u.pedido_items.length} producto${u.pedido_items.length === 1 ? "" : "s"}</small></span></button>` : ""}</div>` : ""}</section>`;
+}
+// Foto de una categoría: la del primer producto de esa categoría que tenga foto.
+function fotoCat(items, c) {
+  for (const p of items) if (p.categoria === c) { const src = p.ref ? p.foto_url : (fotoPortafolio(p) || p.foto_url); if (src) return `<img class="lz" data-src="${esc(src)}" alt="" width="400" height="400" loading="lazy" decoding="async">`; }
+  return `<b>${esc(c.slice(0, 2).toUpperCase())}</b>`;
+}
+// Destacados: los que el administrador marca como destacados. Si son menos de 4, se completan con uno de cada
+// categoría grande que no salga ya en la primera fila de su categoría (así no se repite lo que se ve abajo).
+function destacados(items, cats) {
+  const d = items.filter(p => p.destacado && !p.ref).slice(0, 10); if (d.length >= 4) return d;
+  const usados = new Set(d.map(p => p.id));
+  for (const c of cats.slice(1)) { const p = items.filter(x => x.categoria === c).slice(10).find(x => !usados.has(x.id) && !x.agotado_en_fuente); if (p && d.length < 10) { d.push(p); usados.add(p.id); } }
+  return d;
+}
 // Inicio = catálogo. Pinta enseguida con lo que haya (caché local + portafolio empaquetado) y refresca cuando llega Supabase.
 async function vCatalogo() {
   const T = S.navTok; let firma = "";
@@ -172,13 +222,14 @@ async function vCatalogo() {
     const colorOk = c => /^#[0-9a-f]{3,8}$/i.test(c || "") ? c : "#0b5cab";
     app.innerHTML = `
   ${S.offline ? `<div class="note warn">📴 Sin conexión: ves el catálogo guardado. Podrás enviar el pedido cuando vuelva el internet.</div>` : ""}
-  ${S.user ? "" : `<section class="hero"><div><h1>Pide para tu tienda en segundos</h1><p>Portafolio de bebidas, chat con tu vendedor y seguimiento de cada pedido.</p></div><div class="hb"><a class="btn y" href="#/entrar/registro">Inscribir mi tienda</a><a class="btn ghost" href="#/entrar">Ya tengo cuenta</a></div></section>`}
-  ${staff() ? `<div class="note">Estás viendo el catálogo como ${ROLES[rol()]}. <a href="#/panel" onclick="sessionStorage.dpVerCat=''">Volver al panel</a></div>` : ""}
+  ${S.user ? "" : heroEntrada()}
+  ${S.user && !staff() ? holaTienda() : ""}
+  ${staff() ? `<div class="note">Estás viendo el catálogo como ${ROLES[rol()]}. <a href="#/panel" onclick="sessionStorage.dpVerCat=''">Volver a pedidos</a></div>` : ""}
+  ${S.user ? buscador(reales) : ""}
   ${ban.length ? `<div class="banners" aria-label="Promociones">${ban.map(b => `<div class="banner" style="--bc:${colorOk(b.color)}">${b.imagen_url ? `<img src="${esc(b.imagen_url)}" alt="" loading="lazy">` : ""}<div><b>${esc(b.titulo)}</b><p>${esc(b.texto)}</p></div></div>`).join("")}</div>` : ""}
-  ${S.frecuentes.length ? `<h3 class="sec">🔁 Pide de nuevo</h3><div class="hscroll grid" id="frec"></div>` : ""}
-  <div class="search"><input id="q" type="search" placeholder="🔎 Buscar marca, sabor o tamaño…" aria-label="Buscar producto" value="${esc(S.q)}" autocomplete="off">
-   <select id="orden" aria-label="Ordenar" ${reales.length ? "" : "hidden"}><option value="">Ordenar</option><option value="pa" ${S.orden === "pa" ? "selected" : ""}>Precio ↑</option><option value="pd" ${S.orden === "pd" ? "selected" : ""}>Precio ↓</option><option value="n" ${S.orden === "n" ? "selected" : ""}>Nombre A-Z</option></select></div>
-  <div class="cats" role="toolbar" aria-label="Filtros">${S.user && !staff() && reales.length ? `<button class="cat ${S.filtro === "fav" ? "on" : ""}" data-x="fav">♥ Favoritos</button>` : ""}${reales.some(enPromo) ? `<button class="cat ${S.filtro === "promo" ? "on" : ""}" data-x="promo">🔥 Promos</button>` : ""}${cats.map(c => `<button class="cat ${c === S.cat ? "on" : ""}" data-c="${esc(c)}">${esc(c)}${c === "Todo" ? "" : ` <small>${cuenta(c)}</small>`}</button>`).join("")}</div>
+  <h3 class="sec" id="catT">Categorías</h3>
+  <div class="cats tiles" role="toolbar" aria-labelledby="catT">${cats.slice(0, 1).map(c => `<button class="cat ${c === S.cat ? "on" : ""}" data-c="${esc(c)}">${c === "Todo" ? `<span class="ti em" aria-hidden="true">🛍️</span>` : `<span class="ti">${fotoCat(items, c)}</span>`}<span class="tn">${c === "Todo" ? "Todo" : esc(c)}</span>${c === "Todo" ? `<small>${items.length}</small>` : `<small>${cuenta(c)}</small>`}</button>`).join("")}${S.user && !staff() && reales.length ? `<button class="cat ${S.filtro === "fav" ? "on" : ""}" data-x="fav"><span class="ti em" aria-hidden="true">♥</span><span class="tn">Favoritos</span></button>` : ""}${reales.some(enPromo) ? `<button class="cat ${S.filtro === "promo" ? "on" : ""}" data-x="promo"><span class="ti em" aria-hidden="true">🔥</span><span class="tn">Promos</span></button>` : ""}${cats.slice(1).map(c => `<button class="cat ${c === S.cat ? "on" : ""}" data-c="${esc(c)}">${c === "Todo" ? `<span class="ti em" aria-hidden="true">🛍️</span>` : `<span class="ti">${fotoCat(items, c)}</span>`}<span class="tn">${c === "Todo" ? "Todo" : esc(c)}</span>${c === "Todo" ? `<small>${items.length}</small>` : `<small>${cuenta(c)}</small>`}</button>`).join("")}</div>
+  ${S.frecuentes.length ? `<div class="sech"><h3>🔁 Pide de nuevo</h3></div><div class="hscroll grid" id="frec"></div>` : `<div id="dest"></div>`}
   ${hayRefs && !reales.length ? `<p class="muted small aviso-ref">${items.length} referencias · <b>precio y disponibilidad a consultar</b> con tu vendedor. Fotos: WeShop by Postobón.</p>` : ""}
   ${S.config.pedido_minimo > 0 && reales.length ? `<p class="muted small">Pedido mínimo: <b>${cop(S.config.pedido_minimo)}</b></p>` : ""}
   <p class="muted small" id="cn" aria-live="polite"></p><div id="grid"></div>
@@ -193,18 +244,21 @@ async function vCatalogo() {
       if (!l.length) { g.className = ""; g.innerHTML = items.length ? `<div class="empty">${S.filtro === "fav" ? "Aún no tienes favoritos. Toca ♡ en un producto." : "No hay productos con ese filtro."}</div>` : ""; }
       else if (S.cat === "Todo" && !q && !S.filtro && !S.orden) {
         // Vista por categorías: una fila desplazable por categoría con sus primeros productos.
-        g.className = ""; let i = 0;
+        g.className = ""; let i = S.user ? 0 : 4; // con la portada, las fotos de la portada son las prioritarias
         g.innerHTML = cats.slice(1).map(c => { const lc = l.filter(p => p.categoria === c); if (!lc.length) return "";
           return `<section class="catsec"><div class="sech"><h3>${esc(c)} <small>${lc.length}</small></h3>${lc.length > 10 ? `<button class="link" data-c="${esc(c)}">Ver todo →</button>` : ""}</div>
             <div class="hscroll grid">${lc.slice(0, 10).map(p => tarjeta(p, i++)).join("")}${lc.length > 10 ? `<button class="prod vermas" data-c="${esc(c)}">Ver los ${lc.length} de ${esc(c)} →</button>` : ""}</div></section>`; }).join("");
       } else { g.className = "grid"; grillaPaginada(g, l, tarjeta); }
       const fr = $("#frec"); if (fr) fr.innerHTML = S.frecuentes.map(tarjeta).join("");
+      const de = $("#dest"); if (de) { const vista = S.cat === "Todo" && !q && !S.filtro && !S.orden, d = vista ? destacados(items, cats) : [];
+        de.innerHTML = d.length ? `<div class="sech"><h3>⭐ Destacados</h3></div><div class="hscroll grid">${d.map(p => tarjeta(p, 99)).join("")}</div>` : ""; }
     };
-    pintar();
+    pintar(); barra();
     const qi = $("#q"); if (foco) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
     qi.oninput = debounce(e => { S.q = e.target.value; pintar(); });
-    $("#orden").onchange = e => { S.orden = e.target.value; pintar(); };
-    const elegir = b => { if (b.dataset.x) S.filtro = S.filtro === b.dataset.x ? "" : b.dataset.x; else S.cat = b.dataset.c; app.querySelectorAll(".cats .cat").forEach(x => x.classList.toggle("on", x.dataset.c ? x.dataset.c === S.cat : S.filtro === x.dataset.x)); pintar(); if (b.closest("#grid")) $(".cats").scrollIntoView({ block: "start" }); };
+    const so = $("#orden"); if (so) so.onchange = e => { S.orden = e.target.value; pintar(); };
+    const ru = $("#repUltH"); if (ru) ru.onclick = () => repetirPedido(S.ultimo.pedido_items);
+    const elegir = b => { if (b.dataset.x) S.filtro = S.filtro === b.dataset.x ? "" : b.dataset.x; else S.cat = b.dataset.c; app.querySelectorAll(".cats .cat").forEach(x => x.classList.toggle("on", x.dataset.c ? x.dataset.c === S.cat : S.filtro === x.dataset.x)); pintar(); if (b.closest("#grid") || b.closest(".tiles")) $("#cn").scrollIntoView({ block: "center" }); };
     app.querySelectorAll(".cats .cat").forEach(b => b.onclick = () => elegir(b));
     app.onclick = async e => {
       const vc = e.target.closest("#grid [data-c]"); if (vc) return elegir(vc);
@@ -274,17 +328,20 @@ async function vCarrito() {
 function vEntrar(modo) {
   if (S.user) { location.hash = staff() ? "#/panel" : "#/"; return; }
   const reg = modo === "registro";
-  app.innerHTML = `<div class="card auth"><div class="seg"><a href="#/entrar" class="${reg ? "" : "on"}">Entrar</a><a href="#/entrar/registro" class="${reg ? "on" : ""}">Inscribir tienda</a></div>
-  <form id="f">${reg ? `
+  app.innerHTML = `<div class="authw"><aside class="authb"><div class="collage mini3" aria-hidden="true">${HERO_FOTOS.slice(0, 3).map((f, i) => `<span>${fotoHero(f, i)}</span>`).join("")}</div>
+   <h1>${reg ? "Inscribe tu tienda" : "¡Hola de nuevo!"}</h1><p>${reg ? "Te toma un minuto. Después pides cuando quieras desde el celular." : "Entra para pedir, ver tus pedidos y hablar con tu vendedor."}</p>
+   <ul class="benef"><li>🛒 Pide desde el celular</li><li>💬 Chat y WhatsApp con tu vendedor</li><li>📦 Sigue cada pedido paso a paso</li></ul></aside>
+  <div class="card auth"><div class="seg"><a href="#/entrar" class="${reg ? "" : "on"}">Entrar</a><a href="#/entrar/registro" class="${reg ? "on" : ""}">Inscribir tienda</a></div>
+  <form id="f">${reg ? `<p class="paso">1 · Datos de la tienda</p>
     <label>Nombre de la tienda o persona<input name="nombre" required maxlength="120" autocomplete="organization"></label>
     <label>Cédula o NIT<input name="cedula" required inputmode="numeric" maxlength="20" pattern="[0-9.\\- ]{5,20}" title="Solo números, de 5 a 20"></label>
     <label>Teléfono celular<input name="telefono" required type="tel" inputmode="tel" maxlength="20" pattern="[0-9+ ]{7,20}" autocomplete="tel"></label>
-    <label>Dirección de entrega<input name="direccion" required maxlength="200" autocomplete="street-address"></label>` : ""}
+    <label>Dirección de entrega<input name="direccion" required maxlength="200" autocomplete="street-address"></label><p class="paso">2 · Tu acceso</p>` : ""}
     <label>Correo electrónico<input name="correo" type="email" required autocomplete="email"></label>
-    <label>Contraseña<span class="pw"><input name="clave" type="password" required minlength="8" autocomplete="${reg ? "new-password" : "current-password"}"><button type="button" class="ver" aria-label="Mostrar u ocultar contraseña">👁</button></span></label>
+    <label>Contraseña<span class="pw"><input name="clave" type="password" required minlength="8" autocomplete="${reg ? "new-password" : "current-password"}"><button type="button" class="ver" aria-label="Mostrar u ocultar contraseña">👁</button></span></label>${reg ? `<small class="muted">Mínimo 8 caracteres.</small>` : ""}
     ${reg ? `<label class="chk"><input type="checkbox" required> Acepto que mis datos se usen solo para gestionar mis pedidos.</label>` : ""}
     <button class="btn y w big" type="submit">${reg ? "Crear mi cuenta" : "Entrar"}</button></form>
-    ${reg ? "" : `<button id="olv" class="link">¿Olvidaste tu contraseña?</button>`}</div>`;
+    ${reg ? `<p class="small muted alt">¿Ya tienes cuenta? <a href="#/entrar">Entra aquí</a></p>` : `<button id="olv" class="link">¿Olvidaste tu contraseña?</button><p class="small muted alt">¿Tu tienda aún no está inscrita? <a href="#/entrar/registro">Inscríbela aquí</a></p>`}</div></div>`;
   app.querySelector(".ver").onclick = () => { const i = app.querySelector("[name=clave]"); i.type = i.type === "password" ? "text" : "password"; };
   $("#f").onsubmit = async e => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), b = e.target.querySelector("[type=submit]"); b.disabled = true;
@@ -306,12 +363,12 @@ function vClave() {
 }
 async function vPerfil() {
   const p = S.perfil, t = LS("tema") || "auto";
-  app.innerHTML = `<h2>Mi perfil</h2><div class="card"><p><span class="tag">${ROLES[p.rol]}</span> ${esc(p.correo)}</p><form id="f">
+  app.innerHTML = `<h2>Mi cuenta</h2><div class="card"><p><span class="tag">${ROLES[p.rol]}</span> ${esc(p.correo)}</p><form id="f">
    <label>Nombre<input name="nombre" required maxlength="120" value="${esc(p.nombre)}"></label><label>Cédula o NIT<input name="cedula" required maxlength="20" value="${esc(p.cedula)}"></label>
    <label>Teléfono<input name="telefono" required type="tel" maxlength="20" value="${esc(p.telefono)}"></label><label>Dirección<input name="direccion" required maxlength="200" value="${esc(p.direccion)}"></label>
    <button class="btn w">Guardar cambios</button></form></div>${p.rol === "cliente" ? `<div id="v5p"></div>` : ""}
    <div class="card"><h3>Preferencias</h3><label>Tema<select id="tema"><option value="auto" ${t === "auto" ? "selected" : ""}>Automático</option><option value="claro" ${t === "claro" ? "selected" : ""}>Claro</option><option value="oscuro" ${t === "oscuro" ? "selected" : ""}>Oscuro</option></select></label>
-   <button id="notif" class="btn ghost w">🔔 Activar notificaciones</button><a class="btn ghost w" href="#/clave">🔑 Cambiar contraseña</a>${staff() ? `<a class="btn ghost w" href="#/" onclick="sessionStorage.dpVerCat='1'">🛒 Ver catálogo</a>` : ""}<button id="salir" class="btn red w">Cerrar sesión</button></div>`;
+   <button id="notif" class="btn ghost w">🔔 Activar notificaciones</button><a class="btn ghost w" href="#/clave">🔑 Cambiar contraseña</a><button id="salir" class="btn red w">Cerrar sesión</button></div>`;
   $("#f").onsubmit = async e => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); for (const k in f) f[k] = f[k].trim(); const { error } = await sb.from("profiles").update(f).eq("id", p.id); if (error) return toast(errMsg(error), 1); await cargarPerfil(); toast("Datos guardados"); };
   if ($("#v5p")) cargarComercial().then(() => seccionesPerfilCliente($("#v5p")));
   $("#tema").onchange = e => { LS("tema", e.target.value); aplicarTema(); };
@@ -331,7 +388,7 @@ async function vMisPedidos() {
   const T = S.navTok; const { data, error } = await sb.from("pedidos").select("*, pedido_items(producto_id,cantidad)").eq("cliente_id", S.user.id).order("creado", { ascending: false }).limit(100); if (error) throw error; if (!vigente(T)) return;
   const ult = data.find(o => o.estado !== "Cancelado");
   app.innerHTML = `<h2>Mis pedidos</h2>${ult ? `<button class="btn y w" id="repUlt">🔁 Repetir mi último pedido (${esc(ult.codigo)})</button>` : ""}<a class="btn ghost w" href="#/seguir">🔎 Buscar por código</a>
-  ${data.length ? `<div class="card list">${data.map(o => `<a class="row" href="#/pedido/${o.codigo}"><div class="grow"><b>${o.codigo}</b><small>${fecha(o.creado)}${o.fecha_entrega ? " · Entrega " + fechaCorta(o.fecha_entrega) : ""}</small>${estrellas(o.calificacion)}</div>${tagEstado(o.estado)}<b class="num">${cop(o.total)}</b></a>`).join("")}</div>` : `<div class="empty">Aún no has hecho pedidos.</div>`}`;
+  ${data.length ? `<div class="card list">${data.map(o => `<a class="row" href="#/pedido/${o.codigo}"><div class="grow"><b>${o.codigo}</b><small>${fecha(o.creado)}${o.fecha_entrega ? " · Entrega " + fechaCorta(o.fecha_entrega) : ""}</small>${estrellas(o.calificacion)}</div>${tagEstado(o.estado)}<b class="num">${cop(o.total)}</b></a>`).join("")}</div>` : `<div class="empty big">📦<p>Aún no has hecho pedidos.</p><a class="btn" href="#/">Ver productos</a></div>`}`;
   if (ult) $("#repUlt").onclick = () => repetirPedido(ult.pedido_items);
 }
 function vSeguir() {
@@ -417,7 +474,10 @@ function botonesLlamada(token, tel, txt) {
 
 // ---------- Chat ----------
 async function chat(box, clienteId, pedidoId) {
-  if (window.DPChat && (await capacidades()).v6) return DPChat.abrir(box, clienteId, pedidoId);
+  // chat.js (chat mejorado v6) se descarga solo si la base lo permite; al administrador también se le carga para mostrarle el aviso de activación.
+  const v6 = (await capacidades()).v6;
+  if (v6 || rol() === "administrador") { try { await cargarScript("chat.js"); } catch (e) { } }
+  if (window.DPChat && v6) return DPChat.abrir(box, clienteId, pedidoId);
   box.innerHTML = `<div class="msgs" id="msgs" role="log" aria-live="polite"><div class="muted small">Cargando…</div></div><form class="send" id="fs"><input id="txt" maxlength="2000" placeholder="Escribe un mensaje…" aria-label="Mensaje" autocomplete="off" required><button class="btn" aria-label="Enviar mensaje">➤</button></form>${window.DPChat ? DPChat.avisoPendiente() : ""}`;
   let q = sb.from("mensajes").select("*, autor:profiles!mensajes_autor_id_fkey(nombre,rol)").eq("cliente_id", clienteId).order("creado").limit(300);
   q = pedidoId ? q.eq("pedido_id", pedidoId) : q.is("pedido_id", null);
@@ -506,9 +566,18 @@ async function libro(hojas, nombre) {
 }
 
 // ---------- Administración ----------
+// Módulos de administración: se abren desde los mosaicos de «Más» (antes eran 11 pestañas pequeñas en una fila).
+const MODULOS = [["productos", "📦", "Productos y precios", "Crear, editar, activar, importar Excel"], ["inventario", "🏷️", "Inventario", "Stock, lotes, vencimientos, combos"], ["cartera", "💳", "Cobros y abonos", "Lo que deben las tiendas y sus pagos"],
+  ["cierre", "🧾", "Cierre del día", "Cuadre de entregas, abonos y envases"], ["comercial", "🗺️", "Zonas y precios por tienda", "Zonas, tipos de cliente, descuentos, crédito"], ["clientes", "🏪", "Tiendas inscritas", "Lista, contacto y Excel"],
+  ["usuarios", "👥", "Equipo y permisos", "Vendedores, bodega y administradores"], ["banners", "🖼️", "Avisos de promoción", "Los avisos que ven las tiendas en Inicio"], ["ajustes", "⚙️", "Ajustes del pedido", "Pedido mínimo, WhatsApp, franjas"], ["estado", "🩺", "Estado del sistema", "Versión de la base y funciones activas"]];
+function vMas() {
+  app.innerHTML = `<h2>Más opciones</h2><div class="tilesm">${MODULOS.map(([k, ic, t, d]) => `<a class="mod" href="#/admin/${k}"><i aria-hidden="true">${ic}</i><b>${t}</b><small>${d}</small></a>`).join("")}
+   <a class="mod" href="#/catalogo"><i aria-hidden="true">🛍️</i><b>Ver catálogo</b><small>Como lo ve una tienda</small></a><button class="mod" id="xlsM"><i aria-hidden="true">⬇️</i><b>Descargar pedidos</b><small>Excel con pedidos y detalle</small></button></div>`;
+  $("#xlsM").onclick = () => exportarPedidos();
+}
 async function vAdmin(tab = "tablero") {
-  const T = [["tablero", "📊 Tablero"], ["productos", "📦 Productos"], ["inventario", "🏷️ Inventario"], ["comercial", "🗺️ Comercial"], ["cartera", "💳 Cartera"], ["cierre", "🧾 Cierre"], ["estado", "🩺 Estado"], ["banners", "🖼️ Banners"], ["usuarios", "👥 Usuarios"], ["clientes", "🏪 Tiendas"], ["ajustes", "⚙️ Ajustes"]];
-  app.innerHTML = `<h2>Administración</h2><div class="cats">${T.map(([k, n]) => `<a class="cat ${k === tab ? "on" : ""}" href="#/admin/${k}">${n}</a>`).join("")}</div><div id="ad"></div>`;
+  const m = MODULOS.find(x => x[0] === tab);
+  app.innerHTML = m ? `<a class="back" href="#/mas">← Más</a><h2>${m[1]} ${m[2]}</h2><div id="ad"></div>` : `<h2>Resumen del negocio</h2><div id="ad"></div>`;
   await ({ tablero: aTablero, productos: aProductos, inventario: aInventario, comercial: aComercial, cartera: aCartera, cierre: aCierre, estado: aEstado, banners: aBanners, usuarios: aUsuarios, clientes: aClientes, ajustes: aAjustes }[tab] || aTablero)($("#ad"));
 }
 function barras(rows, fmt = cop) {
@@ -544,10 +613,11 @@ async function aTablero(el, dias = 30) {
   el.querySelectorAll("[data-d]").forEach(b => b.onclick = () => aTablero(el, +b.dataset.d));
 }
 async function aProductos(el) {
+  await cargarScript("import-productos.js");
   await cargarCatalogo();
   if (!el.isConnected) return;
   el.innerHTML = `<div class="btns"><button id="nuevo" class="btn y">➕ Nuevo producto</button><label class="btn ghost">📥 Importar Excel<input id="imp" type="file" accept=".xlsx,.xls,.csv" hidden></label><button id="exp" class="btn ghost">⬇️ Exportar Excel</button><button id="pla" class="btn ghost">📄 Plantilla</button></div>
-  <p class="muted small">Plantilla: Producto, Cantidad disponible, Precio COP, Imagen URL (https). También acepta las columnas anteriores (Nombre, Stock, Foto…). Vista previa antes de guardar: si hay errores en alguna fila, se bloquea todo el lote; al confirmar se guarda todo o nada (sin importaciones parciales). Drive e IA quedan para una fase 2 (sin botones simulados).</p>
+  <details class="muted small ayuda"><summary>¿Cómo importar desde Excel?</summary>Descarga la «Plantilla», llena las columnas Producto, Cantidad disponible, Precio COP e Imagen URL (https) y súbela con «Importar Excel». Antes de guardar verás una vista previa; si una fila tiene un error no se guarda nada, para que no queden cargas a medias.</details>
   <input id="bq" type="search" placeholder="🔎 Buscar producto…" aria-label="Buscar producto"><div class="card list" id="lp"></div>`;
   const al = S.config.stock_alerta ?? 10;
   const pintar = t => { t = (t || "").toLowerCase(); const l = S.productos.filter(p => !t || (p.nombre + p.categoria).toLowerCase().includes(t));
