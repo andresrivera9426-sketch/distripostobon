@@ -44,8 +44,12 @@ const vis = await pg.$$eval("#app .prod", l => l.filter(e => { const r = e.getBo
 ok(vis >= 2, "productos visibles en la primera pantalla del móvil (" + vis + ")");
 ok(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "sin desborde horizontal a 390 px");
 ok(await pg.evaluate(() => __tablas.filter(x => x === "productos").length === 1), "una sola consulta a productos al abrir Inicio (" + await pg.evaluate(() => __tablas.filter(x => x === "productos").length) + ")");
-const sinLazy = await pg.$$eval("#app img", l => l.filter((i, k) => k >= 4 && i.loading !== "lazy").length); ok(sinLazy === 0, "imágenes fuera de la primera fila con carga diferida");
-const rutas = await pg.$$eval("#app img", l => [...new Set(l.map(i => new URL(i.src).pathname))]);
+const sinLazy = await pg.$$eval("#app img", l => l.filter((i, k) => k >= 4 && !i.dataset.src).length); ok(sinLazy === 0, "imágenes fuera de las 4 primeras con carga diferida (data-src)");
+const cargadas = await pg.$$eval("#app img", l => l.filter(i => i.getAttribute("src")).length), total = await pg.$$eval("#app img", l => l.length);
+ok(cargadas < total / 2, `primera pantalla: solo se piden las fotos cercanas (${cargadas} de ${total})`);
+await pg.evaluate(async () => { for (let y = 0; y < document.body.scrollHeight; y += 400) { scrollTo(0, y); await new Promise(r => setTimeout(r, 60)); } for (const h of document.querySelectorAll(".hscroll")) { h.scrollIntoView(); for (let x = 0; x <= h.scrollWidth; x += 150) { h.scrollLeft = x; await new Promise(r => setTimeout(r, 40)); } } await new Promise(r => setTimeout(r, 400)); scrollTo(0, 0); await new Promise(r => setTimeout(r, 100)); });
+ok(await pg.$$eval("#app img", l => l.every(i => i.getAttribute("src"))), "al desplazarse (vertical y filas horizontales) se cargan todas las fotos");
+const rutas = await pg.$$eval("#app img", l => [...new Set(l.map(i => new URL(i.getAttribute("src") || i.dataset.src, location.href).pathname))]);
 const malas = []; for (const p of rutas) { const r = await pg.evaluate(async u => (await fetch(u)).status, p); if (r !== 200) malas.push(p); }
 ok(REF.every(p => p.imagen.startsWith("imagenes/portafolio/oficial/")) && rutas.filter(p => p.includes("/imagenes/portafolio/")).every(p => p.includes("/oficial/")), "portafolio usa fotos oficiales (" + REF.length + " referencias)");
 ok(rutas.length > 5 && !malas.length, `todas las imágenes del Inicio existen en el paquete (${rutas.length} distintas)` + (malas.length ? " faltan: " + malas.join(",") : ""));

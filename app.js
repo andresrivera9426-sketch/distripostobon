@@ -145,7 +145,7 @@ function barra() {
 }
 function totalCarrito() { return Object.entries(S.carrito).reduce((t, [id, q]) => { const p = S.productos.find(x => x.id === id); return t + (p ? precioCant(p, q) * q : 0); }, 0); }
 function fotoSrc(u) { if (!u) return ""; /* https = Storage u otra URL remota; si no, ruta local de la app (imagenes/portafolio/...). */ return u; }
-function foto(p, cls = "ph", i = 99) { const src = p.ref ? fotoSrc(p.foto_url) : (fotoPortafolio(p) || fotoSrc(p.foto_url)); return src ? `<img class="${cls}" src="${esc(src)}" alt="" width="400" height="400" ${i < 4 ? `fetchpriority="high"` : `loading="lazy"`} decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
+function foto(p, cls = "ph", i = 99) { const src = p.ref ? fotoSrc(p.foto_url) : (fotoPortafolio(p) || fotoSrc(p.foto_url)); return src ? `<img class="${cls}${i < 4 ? "" : " lz"}" ${i < 4 ? "src" : "data-src"}="${esc(src)}" alt="" width="400" height="400" ${i < 4 ? `fetchpriority="high"` : `loading="lazy"`} decoding="async">` : `<div class="${cls} nof" aria-hidden="true">${esc((p.nombre || "?").replace(/^EJEMPLO · /, "").slice(0, 2).toUpperCase())}</div>`; }
 function tarjeta(p, i) {
   if (p.ref) return tarjetaRef(p, i);
   const c = S.carrito[p.id] || 0, ago = p.stock <= 0, fav = S.favs.has(p.id), pr = enPromo(p);
@@ -718,6 +718,13 @@ async function aAjustes(el) {
    <label>Franjas de entrega (una por línea)<textarea name="franjas">${esc((S.config.franjas || []).join("\n"))}</textarea></label><button class="btn y w">Guardar ajustes</button></form>`;
   $("#fa").onsubmit = async e => { e.preventDefault(); const f = new FormData(e.target); const { error } = await sb.from("config").update({ pedido_minimo: Number(f.get("pedido_minimo")) || 0, whatsapp_vendedor: f.get("whatsapp_vendedor").replace(/\D/g, ""), stock_alerta: parseInt(f.get("stock_alerta")) || 0, franjas: f.get("franjas").split("\n").map(x => x.trim()).filter(Boolean).slice(0, 8), actualizado: new Date().toISOString() }).eq("id", 1); toast(error ? errMsg(error) : "Ajustes guardados", !!error); };
 }
+
+// ---------- Carga diferida de fotos ----------
+// Las fotos (salvo las 4 primeras) llevan data-src y se cargan solo al acercarse a la pantalla (300 px), también en filas horizontales.
+// Así la primera visita no descarga decenas de fotos que la persona no ve. Sin IntersectionObserver se cargan de inmediato.
+const _lzIO = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { const i = e.target; _lzIO.unobserve(i); i.src = i.dataset.src; i.classList.remove("lz"); } }), { rootMargin: "300px" }) : null;
+function observarFotos(raiz) { raiz.querySelectorAll?.("img.lz[data-src]").forEach(i => { if (_lzIO) _lzIO.observe(i); else { i.src = i.dataset.src; i.classList.remove("lz"); } }); }
+new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType !== 1) return; if (n.matches("img.lz[data-src]")) observarFotos(n.parentNode); else observarFotos(n); }))).observe(document.body, { childList: true, subtree: true });
 
 // ---------- Inicio ----------
 sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { S.recovery = true; location.hash = "#/clave"; } if (ev === "SIGNED_OUT") { S.user = null; S.perfil = null; nav(); } });

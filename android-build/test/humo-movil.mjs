@@ -22,7 +22,7 @@ async function abrir(rol, ruta) {
 let pg = await abrir("cliente", "#/");
 ok(await pg.$eval("html", e => e.classList.contains("nativo")), "modo nativo activo");
 ok((await pg.$eval("#app", e => e.innerText)).includes("PRUEBA Gaseosa"), "catálogo renderiza desde assets locales");
-ok(await pg.$$eval("#app img[src^='imagenes/portafolio/']", l => l.length > 0 && l.filter(i => i.complete).every(i => i.naturalWidth > 0)), "Inicio muestra imágenes del portafolio empaquetadas en la app");
+ok(await pg.$$eval("#app img[src^='imagenes/portafolio/oficial/']", l => l.length > 0 && l.filter(i => i.complete).every(i => i.naturalWidth > 0)), "Inicio muestra fotos oficiales empaquetadas en la app");
 await pg.screenshot({ path: path.join(R, "android-build/test/captura-catalogo.png") });
 await pg.evaluate(() => { location.hash = "#/carrito"; }); await new Promise(r => setTimeout(r, 400));
 await pg.evaluate(() => window.__back()); await new Promise(r => setTimeout(r, 400));
