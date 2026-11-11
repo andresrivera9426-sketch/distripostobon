@@ -33,7 +33,7 @@ function cerrarModal() { $("#modal").innerHTML = ""; }
 document.addEventListener("keydown", e => { if (e.key === "Escape") cerrarModal(); });
 
 // ---------- Tema ----------
-function aplicarTema() { const t = LS("tema") || "auto"; document.documentElement.dataset.tema = t; const dark = t === "oscuro" || (t === "auto" && matchMedia("(prefers-color-scheme: dark)").matches); document.querySelector("meta[name=theme-color]").content = dark ? "#0d1520" : "#0b5cab"; }
+function aplicarTema() { const t = LS("tema") || "auto"; document.documentElement.dataset.tema = t; const dark = t === "oscuro" || (t === "auto" && matchMedia("(prefers-color-scheme: dark)").matches); document.querySelector("meta[name=theme-color]").content = dark ? "#0a111d" : "#063a8c"; }
 aplicarTema(); matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", aplicarTema);
 
 // ---------- Sonido y notificaciones ----------
@@ -94,13 +94,26 @@ function tabsDe(r) {
   if (r === "administrador") return ped + chats + TAB("#/admin", "📊", "Resumen", ` data-rx="^#/admin(/tablero)?$"`) + TAB("#/mas", "▦", "Más", ` data-rx="^#/(mas|admin/(?!tablero)|catalogo)"`) + cta;
   return ped + chats + cat + cta; // vendedor
 }
+// Encabezado: acceso rápido a buscar y, con sesión, avatar con iniciales que lleva a «Mi cuenta».
+const LUPA = `<button class="hbtn" id="hBus" aria-label="Buscar productos"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5 20 20" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>`;
+const iniciales = s => (String(s || "").trim().split(/\s+/).slice(0, 2).map(x => x[0] || "").join("") || "?").toUpperCase();
 function nav() {
   const n = $("#nav"), t = $("#tabs");
-  if (!S.user) { n.innerHTML = ""; t.innerHTML = tabsDe(null); marcarTab(); barra(); return; }
-  const nom = esc((S.perfil?.nombre || S.user.email).split(" ")[0]);
-  n.innerHTML = `<span class="chip">${nom} · ${ROLES[rol()] || ""}</span>`;
+  document.body.classList.toggle("sesion", !!S.user);
+  if (!S.user) { n.innerHTML = LUPA; t.innerHTML = tabsDe(null); marcarTab(); barra(); return; }
+  const nombre = S.perfil?.nombre || S.user.email || "";
+  n.innerHTML = `${rol() === "bodega" ? "" : LUPA}<a href="#/perfil" class="avatar" title="${esc(nombre)} · ${ROLES[rol()] || ""}" aria-label="Mi cuenta: ${esc(nombre)}, ${ROLES[rol()] || ""}"><span aria-hidden="true">${esc(iniciales(nombre))}</span></a>`;
   t.innerHTML = tabsDe(rol()); marcarTab(); barra();
 }
+function irABuscar() {
+  const destino = staff() ? "#/catalogo" : "#/", h = location.hash || "#/";
+  const enCat = staff() ? h.startsWith("#/catalogo") : (h === "#/" || h === "#");
+  if (enCat && $("#q")) { const q = $("#q"); q.scrollIntoView({ block: "center" }); q.focus(); return; }
+  S.focoQ = true; location.hash = destino;
+}
+document.addEventListener("click", e => { if (e.target.closest("#hBus")) irABuscar(); });
+// Encabezado compacto al desplazarse (solo sombra/escala: no mueve el contenido).
+addEventListener("scroll", () => { const tp = $("#top"); if (tp) tp.classList.toggle("compacta", scrollY > 8); }, { passive: true });
 function marcarTab() { const h = location.hash || "#/"; document.querySelectorAll("#tabs a").forEach(a => { const r = a.getAttribute("href"); const on = a.dataset.rx ? new RegExp(a.dataset.rx).test(h) : r === "#/" ? (h === "#/" || h === "#") : h.startsWith(r); a.classList.toggle("on", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); }); }
 
 // ---------- Mensajes no leídos ----------
@@ -143,7 +156,7 @@ async function router() {
   if ((r === "admin" || r === "mas") && rol() !== "administrador") { location.hash = "#/panel"; return; }
   if (r === "" && staff()) { location.hash = sessionStorage.dpVerCat === "1" ? "#/catalogo" : "#/panel"; return; }
   if (r === "catalogo" && !staff()) { location.hash = "#/"; return; }
-  marcarTab(); barra();
+  marcarTab(); barra(); app.classList.remove("entra"); void app.offsetWidth; app.classList.add("entra");
   try { await rutas[r](...a.map(decodeURIComponent)); } catch (e) { console.error(e); app.innerHTML = `<div class="card"><h2>Algo falló</h2><p>${esc(errMsg(e))}</p><button class="btn" onclick="router()">Reintentar</button></div>`; }
   window.scrollTo(0, 0);
 }
@@ -153,7 +166,9 @@ window.addEventListener("hashchange", router);
 function barra() {
   const n = Object.values(S.carrito).reduce((a, b) => a + b, 0), bar = $("#bar");
   const h = location.hash.replace(/^#\/?/, "").split("/")[0];
-  document.querySelectorAll(".cartTab").forEach(a => { a.querySelector(".badge")?.remove(); if (n) a.insertAdjacentHTML("beforeend", `<b class="badge" aria-label="${n} en el carrito">${n > 99 ? "99+" : n}</b>`); });
+  const sube = n > (S._nCart ?? n); S._nCart = n;
+  document.querySelectorAll(".cartTab").forEach(a => { a.querySelector(".badge")?.remove(); if (n) a.insertAdjacentHTML("beforeend", `<b class="badge${sube ? " pop" : ""}" aria-label="${n} en el carrito">${n > 99 ? "99+" : n}</b>`); });
+  if (sube) { bar.classList.remove("pop"); void bar.offsetWidth; bar.classList.add("pop"); }
   if (!n || staff() || !["", "portafolio"].includes(h)) { bar.classList.add("hidden"); return; }
   bar.classList.remove("hidden"); $("#barN").textContent = n + " producto" + (n > 1 ? "s" : ""); $("#barT").textContent = cop(totalCarrito());
 }
@@ -255,6 +270,7 @@ async function vCatalogo() {
     };
     pintar(); barra();
     const qi = $("#q"); if (foco) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
+    if (S.focoQ) { S.focoQ = false; qi.scrollIntoView({ block: "center" }); qi.focus(); }
     qi.oninput = debounce(e => { S.q = e.target.value; pintar(); });
     const so = $("#orden"); if (so) so.onchange = e => { S.orden = e.target.value; pintar(); };
     const ru = $("#repUltH"); if (ru) ru.onclick = () => repetirPedido(S.ultimo.pedido_items);
@@ -275,6 +291,7 @@ async function vCatalogo() {
       else { S.carrito[id]--; if (S.carrito[id] <= 0) delete S.carrito[id]; }
       if (navigator.vibrate) navigator.vibrate(12);
       guardarCarrito(); pintarTarjeta(id);
+      if (b.dataset.p) app.querySelectorAll(`[data-pid="${id}"] .qty`).forEach(q => q.classList.add("pop"));
     };
     // Actualiza solo las tarjetas de ese producto (sin repintar toda la grilla ni perder el scroll).
     const pintarTarjeta = id => { const p = S.productos.find(x => x.id === id); if (!p) return;

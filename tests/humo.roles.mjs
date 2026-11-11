@@ -52,10 +52,11 @@ ok(pg.toques === 1 && (await pg.$$("#f input:not([type=checkbox])")).length === 
 ok(await pg.$eval(".authb h1", e => e.innerText === "Inscribe tu tienda") && (await pg.$$(".authb .benef li")).length === 3, "registro: tarjeta de marca con beneficios");
 pg.toques = 0; await pg.tab("Entrar"); ok(pg.toques === 1 && (await txt(pg)).includes("¡Hola de nuevo!") && !!await pg.$('a[href="#/entrar/registro"]'), "entrar: 1 toque; enlace para inscribirse");
 ok((await chicos(pg)).length === 0, "pantalla Entrar: toques ≥ 44 px " + (await chicos(pg)).join(" "));
+ok(await pg.evaluate(() => { const b = document.querySelector("#hBus"), m = document.querySelector(".top .marca"); const r = b && b.getBoundingClientRect(); return !!m && r && r.width >= 44 && r.height >= 44 && b.getAttribute("aria-label") === "Buscar productos"; }), "encabezado: marca propia y botón de búsqueda ≥ 44 px");
 ok(!pg.errs.length, "visitante sin errores de JavaScript " + pg.errs.join(" | ")); await ctx.close();
 // Modo oscuro
 ({ pg, ctx } = await abrir({ anon: true, ls: { tema: "oscuro" } }));
-ok(await pg.evaluate(() => getComputedStyle(document.body).backgroundColor === "rgb(13, 21, 32)" && getComputedStyle(document.querySelector(".trust li")).backgroundColor === "rgb(22, 34, 50)" && !!document.querySelector(".hero2")), "modo oscuro: portada, franja y fondo oscuros");
+ok(await pg.evaluate(() => (() => { const lum = c => { const [r, g, b] = c.match(/\d+/g).map(Number); return (r * 299 + g * 587 + b * 114) / 1000; }; return lum(getComputedStyle(document.body).backgroundColor) < 40 && lum(getComputedStyle(document.querySelector(".trust li")).backgroundColor) < 60; })() && !!document.querySelector(".hero2")), "modo oscuro: portada, franja y fondo oscuros");
 await pg.screenshot({ path: "/tmp/humo-roles-oscuro.png" }); ok(!pg.errs.length, "modo oscuro sin errores"); await ctx.close();
 // Escritorio
 ({ pg, ctx } = await abrir({ anon: true, vp: PC }));
@@ -65,6 +66,9 @@ await ctx.close();
 // ===== Tienda =====
 ({ pg, ctx } = await abrir({ ls: { carrito: { p1: 2 } } }));
 ok(JSON.stringify(await tabs(pg)) === '["Inicio","Carrito","Pedidos","Chat","Cuenta"]', "tienda: 5 pestañas Inicio · Carrito · Pedidos · Chat · Cuenta");
+ok(await pg.evaluate(() => { const a = document.querySelector(".top .avatar"), r = a && a.getBoundingClientRect(); return !!a && /^[A-Z]{1,2}$/.test(a.innerText.trim()) && r.width >= 44 && r.height >= 44 && a.getAttribute("href") === "#/perfil"; }), "encabezado con sesión: avatar con iniciales ≥ 44 px que abre Mi cuenta");
+await pg.click("#hBus"); await new Promise(r => setTimeout(r, 300));
+ok(await pg.evaluate(() => document.activeElement && document.activeElement.id === "q"), "encabezado: el botón de búsqueda lleva el foco al buscador");
 ok(await pg.$eval(".cartTab .badge", b => b.innerText === "2") && await pg.$eval("#barT", b => b.innerText === "$36.000"), "tienda: contador del carrito (2) y total en la barra con su precio de tienda ($36.000)");
 ok((await chicos(pg)).length === 0, "tienda Inicio: toques ≥ 44 px " + (await chicos(pg)).slice(0, 3).join(" "));
 await ctx.close(); ({ pg, ctx } = await abrir()); pg.toques = 0;

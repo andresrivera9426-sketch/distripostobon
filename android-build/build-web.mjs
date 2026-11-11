@@ -3,7 +3,7 @@
 import fs from "node:fs"; import path from "node:path";
 const R = path.resolve(new URL("..", import.meta.url).pathname), W = path.join(R, "www");
 fs.rmSync(W, { recursive: true, force: true }); fs.mkdirSync(path.join(W, "vendor"), { recursive: true });
-for (const f of ["app.js", "config.js", "import-productos.js", "reglas.js", "v5.js", "chat.js", "portafolio.js", "portafolio.json", "styles.css", "icon.svg", "icon-192.png", "icon-512.png", "manifest.webmanifest"]) fs.copyFileSync(path.join(R, f), path.join(W, f));
+for (const f of ["app.js", "config.js", "import-productos.js", "reglas.js", "v5.js", "chat.js", "portafolio.js", "portafolio.json", "styles.css", "icon.svg", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png", "manifest.webmanifest"]) fs.copyFileSync(path.join(R, f), path.join(W, f));
 const imgSrc = path.join(R, "imagenes"); if (fs.existsSync(imgSrc)) fs.cpSync(imgSrc, path.join(W, "imagenes"), { recursive: true });
 fs.copyFileSync(path.join(R, "node_modules/@supabase/supabase-js/dist/umd/supabase.js"), path.join(W, "vendor/supabase.js"));
 fs.copyFileSync(path.join(R, "node_modules/xlsx/dist/xlsx.full.min.js"), path.join(W, "vendor/xlsx.full.min.js"));
